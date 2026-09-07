@@ -1,0 +1,166 @@
+# ODP catalog — Organization-Defined Parameters, portable across tenants.
+#
+# ONE GOVERNANCE DECISION LIVES IN ONE PLACE. This file declares what a knob IS:
+# its type, its legal range, the OSCAL parameter it satisfies, and the baselines
+# it applies to. It does NOT carry any organization's chosen value -- those live
+# in an overlay, so the same catalog serves any tenant.
+#
+# The only value here is `default`, and a default is not a recommendation. It is
+# what renders when an overlay is silent, and the traceability report records it
+# as `assigned_by: catalog-default` precisely so it is never mistaken for a
+# decision somebody made.
+#
+# ---------------------------------------------------------------------------
+# WHY THE KEYS ARE OURS AND NOT OSCAL'S
+# ---------------------------------------------------------------------------
+# An AWS Config rule parameter is not 1:1 with an OSCAL ODP, and the mismatch is
+# not an edge case -- it is the normal shape in IA and AC.
+#
+#   ia-05.01_odp.02 is ONE free-text ODP: "authenticator composition and
+#   complexity rules are defined". Minimum password length, maximum password age
+#   and reuse prevention are three AWS knobs that together EXPRESS that one ODP.
+#
+#   ia-05_odp.01 is "a time period for changing or refreshing authenticators by
+#   authenticator type" -- one ODP whose own wording anticipates different values
+#   per authenticator type. Access keys and Secrets Manager secrets are two such
+#   types with two different periods.
+#
+# So the catalog is keyed by OUR name and JOINS to OSCAL. Several entries may
+# share one `oscal_param_id`; that is expected and is not a duplicate. Keying
+# this file on OSCAL ids directly cannot represent the relationship at all.
+#
+# ---------------------------------------------------------------------------
+# TWO OSCAL ID FORMS, BOTH REQUIRED
+# ---------------------------------------------------------------------------
+# Rev 5 canonical ids are zero-padded with an `_odp.NN` suffix (ia-05.01_odp.02).
+# The older `_prm_N` form (ia-5.1_prm_2) still exists, carried on each parameter
+# as an `alt-identifier` prop -- and it is the form SPARC's ODP import fixture
+# uses. Both are recorded so a value can be joined from either direction without
+# a lookup table maintained somewhere else.
+#
+# ---------------------------------------------------------------------------
+# BASELINE MEMBERSHIP IS LOAD-BEARING
+# ---------------------------------------------------------------------------
+# Controls differ across baselines: Low resolves 149 controls, Moderate 287,
+# High 370. ac-2.3 is absent from Low entirely. An ODP bound to a control that
+# is not in the target baseline must not render into that baseline's pack --
+# it would measure something the baseline does not ask for and report it as
+# coverage.
+#
+# Verified against the NIST SP 800-53 Rev 5 resolved baseline catalogs.
+
+version: 1
+
+odps:
+
+  # ===========================================================================
+  # ia-5.1 — Password-based Authentication
+  # ---------------------------------------------------------------------------
+  # All three below satisfy the SAME ODP (composition and complexity rules).
+  # ===========================================================================
+
+  password_minimum_length:
+    description: >-
+      Minimum number of characters an IAM console password must contain.
+    control: ia-5.1
+    oscal_param_id: ia-05.01_odp.02
+    oscal_alt_id: ia-5.1_prm_2
+    oscal_label: composition and complexity rules
+    baselines: [low, moderate, high]
+    type: integer
+    constraint: { min: 6, max: 128 }
+    default: 14
+    # AWS refuses a value below 6 at the API, so a lower number is not a weak
+    # policy -- it is a deploy-time error. The constraint catches it at build.
+
+  password_maximum_age_days:
+    description: >-
+      Maximum age of an IAM console password before rotation is required.
+    control: ia-5.1
+    oscal_param_id: ia-05.01_odp.02
+    oscal_alt_id: ia-5.1_prm_2
+    oscal_label: composition and complexity rules
+    baselines: [low, moderate, high]
+    type: integer
+    constraint: { min: 1, max: 1095 }
+    default: 90
+
+  password_reuse_prevention:
+    description: >-
+      Number of previous passwords IAM remembers and refuses to accept again.
+    control: ia-5.1
+    oscal_param_id: ia-05.01_odp.02
+    oscal_alt_id: ia-5.1_prm_2
+    oscal_label: composition and complexity rules
+    baselines: [low, moderate, high]
+    type: integer
+    constraint: { min: 1, max: 24 }
+    default: 24
+    # 24 is the AWS maximum, not merely a strong choice. A larger value is
+    # rejected by the API, which is why the constraint stops at it.
+
+  # ===========================================================================
+  # ia-5 — Authenticator Management
+  # ---------------------------------------------------------------------------
+  # Both below satisfy ia-05_odp.01, whose wording -- "by authenticator type" --
+  # is what makes two different periods correct rather than contradictory.
+  #
+  # NOTE: issue #2 lists these under ia-5.1. That is a mis-binding: ia-5.1 is
+  # specifically password composition, while authenticator refresh period is the
+  # base control ia-5. Corrected here.
+  # ===========================================================================
+
+  access_key_maximum_age_days:
+    description: >-
+      Maximum age of an active IAM static access key before it must be rotated.
+    control: ia-5
+    oscal_param_id: ia-05_odp.01
+    oscal_alt_id: ia-5_prm_1
+    oscal_label: time period by authenticator type
+    baselines: [low, moderate, high]
+    type: integer
+    constraint: { min: 1, max: 365 }
+    default: 90
+
+  secret_rotation_period_days:
+    description: >-
+      Maximum interval between successful rotations of a Secrets Manager secret.
+    control: ia-5
+    oscal_param_id: ia-05_odp.01
+    oscal_alt_id: ia-5_prm_1
+    oscal_label: time period by authenticator type
+    baselines: [low, moderate, high]
+    type: integer
+    constraint: { min: 1, max: 365 }
+    default: 90
+
+  # ===========================================================================
+  # ac-2.3 — Disable Accounts
+  # ---------------------------------------------------------------------------
+  # ac-02.03_odp.02 is "time period for account inactivity before disabling".
+  # NOT IN THE LOW BASELINE -- ac-2.3 does not resolve there at all.
+  # ===========================================================================
+
+  credential_inactivity_days:
+    description: >-
+      Days an IAM credential may go unused before the account is disabled.
+    control: ac-2.3
+    oscal_param_id: ac-02.03_odp.02
+    oscal_alt_id: ac-2.3_prm_2
+    oscal_label: time period
+    baselines: [moderate, high]
+    type: integer
+    constraint: { min: 1, max: 365 }
+    default: 90
+
+  secret_unused_days:
+    description: >-
+      Days a Secrets Manager secret may go unaccessed before it is flagged.
+    control: ac-2.3
+    oscal_param_id: ac-02.03_odp.02
+    oscal_alt_id: ac-2.3_prm_2
+    oscal_label: time period
+    baselines: [moderate, high]
+    type: integer
+    constraint: { min: 1, max: 365 }
+    default: 90
