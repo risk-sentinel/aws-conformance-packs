@@ -32,6 +32,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).parent))
 from tools.control_ids import is_control_id, normalize_control_id  # noqa: E402
+from tools import fedramp  # noqa: E402
 
 # Non-increasable AWS Config service limits.
 MAX_RULES_PER_PACK = 130
@@ -185,7 +186,17 @@ def _rendered_description(rule: dict) -> str:
     explicit that the Identity Center and phishing-resistance limits belong in the
     rendered description, so they travel with the deployed rule.
     """
-    parts = [" ".join((rule.get("description") or "").split())]
+    ctrls = ", ".join(normalize_control_id(c) for c in rule["controls"].get("nist_800_53_r5", []))
+    ksis = ", ".join(rule["controls"].get("ksi", []))
+    # AWS::Config::ConfigRule inside a conformance pack does NOT support Tags, so
+    # Description is the only field that travels with the deployed artifact. An
+    # adopter reading the Config console -- or anyone handed the template without
+    # our sidecar CSV -- otherwise cannot tell which control a rule serves.
+    prefix = f"[800-53r5: {ctrls}]"
+    if ksis:
+        prefix += f" [20x: {ksis}]"
+    prefix += f" [coverage: {rule['coverage']}]"
+    parts = [prefix, " ".join((rule.get("description") or "").split())]
     if note := rule.get("coverage_note"):
         parts.append(f"COVERAGE ({rule['coverage']}): {' '.join(note.split())}")
     if note := rule.get("periodic_note"):
@@ -338,7 +349,7 @@ TRACE_COLUMNS = ["pack", "rule", "control", "ksi", "coverage", "odp",
 
 def emit(out_dir: Path, slug: str, template: dict, body: bytes, trace: list[dict],
          resolved: dict[str, Resolved], rules_doc: dict, baseline: str,
-         notes: list[str], emit_oscal: bool) -> list[Path]:
+         notes: list[str], emit_oscal: bool, snap=None) -> list[Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
     written = []
 
@@ -356,6 +367,8 @@ def emit(out_dir: Path, slug: str, template: dict, body: bytes, trace: list[dict
     p = out_dir / f"{slug}.evidence-tags.json"
     p.write_text(json.dumps({
         "pack": slug, "baseline": baseline, "region_scope": rules_doc.get("region_scope"),
+        "fedramp_snapshot": {"version": getattr(snap, "version", "unknown"),
+                             "last_updated": getattr(snap, "last_updated", "unknown")},
         "rules": [
             {
                 "rule": name,
@@ -452,6 +465,7 @@ def main() -> int:
         if not rule_files:
             raise GenerationError("no rule catalogs found under rules/")
 
+        snap = fedramp.load()
         resolved = resolve(catalog, overlay, oscal)
 
         for rf in rule_files:
@@ -474,6 +488,33 @@ def main() -> int:
                             f"{rf}:{name}: {c!r} is not a control id. A KSI belongs "
                             f"under `ksi:`, not in the 800-53 crosswalk."
                         )
+                # Every KSI must EXIST in the vendored FedRAMP snapshot, and must
+                # actually claim one of this rule's controls. The first check kills
+                # stale ids -- FedRAMP re-keyed every indicator from numbered to
+                # mnemonic form and nothing in this estate noticed. The second kills
+                # a plausible-looking but wrong assignment, which is the failure a
+                # shape-only check cannot see.
+                rule_controls = {normalize_control_id(c)
+                                 for c in rule.get("controls", {}).get("nist_800_53_r5", [])}
+                for k in rule.get("controls", {}).get("ksi", []):
+                    ind = snap.indicators.get(k)
+                    if ind is None:
+                        hint = fedramp.suggest(k, snap)
+                        raise GenerationError(
+                            f"{rf}:{name}: {k!r} is not an indicator in the vendored "
+                            f"FedRAMP snapshot ({snap.version}). "
+                            + (f"Candidates in the successor family: {', '.join(hint)}. "
+                               f"The re-key is NOT 1:1 -- choose deliberately."
+                               if hint else
+                               "That family no longer exists; there is no successor.")
+                        )
+                    if not (rule_controls & {normalize_control_id(c) for c in ind.controls}):
+                        raise GenerationError(
+                            f"{rf}:{name}: {k} ({ind.name}) claims none of this rule's "
+                            f"controls {sorted(rule_controls)}. FedRAMP publishes each "
+                            f"indicator's own crosswalk; an assignment that does not "
+                            f"intersect it is asserting coverage FedRAMP does not."
+                        )
 
             template, trace = render_pack(catalog, rules_doc, resolved, baseline)
             body = yaml.safe_dump(template, sort_keys=False, width=100).encode()
@@ -481,7 +522,7 @@ def main() -> int:
 
             slug = rules_doc["pack_slug"]
             written = emit(args.out, slug, template, body, trace, resolved,
-                           rules_doc, baseline, notes, args.emit_oscal)
+                           rules_doc, baseline, notes, args.emit_oscal, snap)
 
             n_rules = len(rules_doc["rules"])
             print(f"{slug}: {n_rules} rules, {len(template['Parameters'])} parameters, "

@@ -52,7 +52,7 @@ rules:
     resource_types: [AWS::IAM::User]
     controls:
       nist_800_53_r5: [ia-5.1, ia-5]
-      ksi: [KSI-IAM-02]
+      ksi: [KSI-IAM-APM]
     coverage: partial
     coverage_note: >-
       Evaluates the ACCOUNT-LEVEL IAM password policy only. Where the
@@ -74,7 +74,7 @@ rules:
     resource_types: [AWS::IAM::User]
     controls:
       nist_800_53_r5: [ia-5]
-      ksi: [KSI-IAM-03]
+      ksi: [KSI-IAM-APM]
     coverage: full
     periodic: true
     periodic_note: >-
@@ -92,7 +92,7 @@ rules:
     resource_types: [AWS::IAM::User]
     controls:
       nist_800_53_r5: [ac-2.3]
-      ksi: [KSI-IAM-05]
+      ksi: [KSI-IAM-AAM]
     coverage: full
     periodic: true
     periodic_note: >-
@@ -109,7 +109,7 @@ rules:
     resource_types: [AWS::SecretsManager::Secret]
     controls:
       nist_800_53_r5: [ia-5]
-      ksi: [KSI-IAM-03]
+      ksi: [KSI-IAM-APM]
     coverage: full
     parameters:
       maxDaysSinceRotation: { odp: secret_rotation_period_days }
@@ -123,7 +123,7 @@ rules:
     resource_types: [AWS::SecretsManager::Secret]
     controls:
       nist_800_53_r5: [ac-2.3]
-      ksi: [KSI-IAM-05]
+      ksi: [KSI-IAM-AAM]
     coverage: supporting
     coverage_note: >-
       An unused secret is an indicator, not a disabled account. This supports
@@ -140,13 +140,14 @@ rules:
     resource_types: [AWS::IAM::User]
     controls:
       nist_800_53_r5: [ia-2.1, ia-2.2]
-      ksi: [KSI-IAM-01]
+      ksi: [KSI-IAM-APM]
     coverage: partial
     coverage_note: >-
       Sees only THAT multi-factor authentication exists, never which factor.
-      KSI-IAM-01 asks specifically for phishing-resistant methods; a virtual TOTP
-      authenticator passes this rule and does not satisfy that indicator. Treat a
-      PASS as evidence of MFA presence, not of phishing resistance.
+      KSI-IAM-APM ("Adopting Passwordless Methods") asks in its own statement for
+      passwordless methods or, failing that, strong passwords with PHISHING-RESISTANT
+      MFA. A virtual TOTP authenticator passes this rule and satisfies neither. Treat
+      a PASS as evidence that MFA exists, not that it is phishing-resistant.
 
   root-account-mfa-enabled:
     source: managed
@@ -156,7 +157,7 @@ rules:
     resource_types: [AWS::IAM::User]
     controls:
       nist_800_53_r5: [ia-2.1]
-      ksi: [KSI-IAM-01]
+      ksi: [KSI-IAM-APM]
     coverage: partial
     coverage_note: >-
       Evaluates ONCE PER ACCOUNT rather than per resource, so in an aggregated

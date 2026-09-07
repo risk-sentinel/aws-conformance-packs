@@ -221,3 +221,72 @@ def test_control_ids_are_normalized_in_traceability(tmp_path):
     csv_text = (tmp_path / "out/800-53r5-IAM.traceability.csv").read_text()
     assert "ac-2.3" in csv_text
     assert "AC-2(3)" not in csv_text and "ac-02.03," not in csv_text
+
+
+# --- FedRAMP snapshot: the drift that already bit us -------------------------
+
+def test_vendored_snapshot_loads_and_is_versioned():
+    from tools import fedramp
+    s = fedramp.load()
+    assert s.version != "unknown" and s.indicators
+    # FedRAMP publishes each indicator's own 800-53 crosswalk. This repository
+    # consumes it and does not own its accuracy.
+    assert any(i.controls for i in s.indicators.values())
+
+
+def test_stale_numbered_ksi_id_refused_with_candidates(tmp_path):
+    """The exact defect that shipped: KSI-IAM-01 no longer exists."""
+    import subprocess
+    r = rl(); r["rules"]["iam-user-mfa-enabled"]["controls"]["ksi"] = ["KSI-IAM-01"]
+    (tmp_path / "iam.yaml").write_text(yaml.safe_dump(r))
+    proc = subprocess.run(
+        [sys.executable, str(ROOT / "generate.py"), "--overlay", str(ROOT / "overlays/vanilla.yaml"),
+         "--out", str(tmp_path / "out"), "--rules", str(tmp_path / "iam.yaml")],
+        capture_output=True, text=True, cwd=ROOT)
+    assert proc.returncode == 1
+    assert "not an indicator" in proc.stderr
+    assert "KSI-IAM-APM" in proc.stderr          # names real successors
+    assert "NOT 1:1" in proc.stderr               # and refuses to pretend it is
+
+
+def test_ksi_from_a_deleted_family_says_there_is_no_successor(tmp_path):
+    """TPR is named in issue #8 and no longer exists in any form."""
+    import subprocess
+    r = rl(); r["rules"]["iam-user-mfa-enabled"]["controls"]["ksi"] = ["KSI-TPR-01"]
+    (tmp_path / "iam.yaml").write_text(yaml.safe_dump(r))
+    proc = subprocess.run(
+        [sys.executable, str(ROOT / "generate.py"), "--overlay", str(ROOT / "overlays/vanilla.yaml"),
+         "--out", str(tmp_path / "out"), "--rules", str(tmp_path / "iam.yaml")],
+        capture_output=True, text=True, cwd=ROOT)
+    assert proc.returncode == 1
+    assert "no successor" in proc.stderr
+
+
+def test_real_ksi_that_claims_none_of_the_rules_controls_refused(tmp_path):
+    """A shape-only check cannot see this: the id exists, the assignment is wrong."""
+    import subprocess
+    r = rl()
+    # KSI-RPL-TRC is a real indicator; it claims no IAM MFA control.
+    r["rules"]["iam-user-mfa-enabled"]["controls"]["ksi"] = ["KSI-RPL-TRC"]
+    (tmp_path / "iam.yaml").write_text(yaml.safe_dump(r))
+    proc = subprocess.run(
+        [sys.executable, str(ROOT / "generate.py"), "--overlay", str(ROOT / "overlays/vanilla.yaml"),
+         "--out", str(tmp_path / "out"), "--rules", str(tmp_path / "iam.yaml")],
+        capture_output=True, text=True, cwd=ROOT)
+    assert proc.returncode == 1
+    assert "claims none of this rule's controls" in proc.stderr
+
+
+def test_deployed_rule_carries_its_own_crosswalk(tmp_path):
+    """Conformance-pack rules do not support Tags, so Description is the only
+    field that travels. Without this an adopter cannot tell what a rule serves."""
+    assert _run_cli(tmp_path, []) == 0
+    t = yaml.safe_load((tmp_path / "out/800-53r5-IAM.yaml").read_text())
+    desc = t["Resources"]["IamPasswordPolicy"]["Properties"]["Description"]
+    assert desc.startswith("[800-53r5: ia-5.1, ia-5] [20x: KSI-IAM-APM] [coverage: partial]")
+
+
+def test_evidence_names_the_snapshot_it_was_assessed_against(tmp_path):
+    assert _run_cli(tmp_path, []) == 0
+    tags = json.loads((tmp_path / "out/800-53r5-IAM.evidence-tags.json").read_text())
+    assert tags["fedramp_snapshot"]["version"] != "unknown"

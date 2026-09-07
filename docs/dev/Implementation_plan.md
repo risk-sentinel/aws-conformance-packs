@@ -8,17 +8,17 @@ per-organization ODP overlay. It is a *generator and a deployment pattern*, not 
 profile: there are no InSpec controls here. Evidence leaves this repo as Config
 rule evaluations, which `risk-sentinel/aws-config` converts to HDF.
 
-**Last updated:** 2026-09-07 (**Phase 1 complete; Phase 2 is next.** #9 landed CI and
-an active branch ruleset. #11 settled the ODP schema against the real Rev 5 OSCAL
-parameter ids. #13 adds `generate.py`, the emitters and the shared control-id
-normalizer, proven against a partial IAM rule catalog that renders a real pack end
-to end — 7 rules, 7 parameters, 13 traceability rows. The generator is also the
-validator: it refuses rather than emitting a pack whose thresholds nobody chose,
-because a wrong value in a conformance pack does not crash, it deploys and reports
-clean. 22 tests, weighted toward those refusals. The rule-catalog lint check RUNS
-the generator rather than re-implementing its checks, so CI and the generator cannot
-drift apart. Two Phase 0 items remain open and neither blocks: SonarCloud is not
-onboarded, and the evidence-bucket emit grant is sparc-iac#701.)
+**Last updated:** 2026-09-07 (**Phase 1 complete. #15 vendors the provenance and
+fixes a drift that had gone unnoticed: all 28 KSI ids in this repo were stale — 0 of
+28 existed.** FedRAMP re-keyed every indicator from numbered to mnemonic
+(`KSI-IAM-01` → `KSI-IAM-APM`), dropped the `TPR` family entirely, and added `SCR`.
+The root cause is that the ids were transcribed by hand from a rendered docs page,
+which cannot detect drift. Now: a version-stamped snapshot of `FedRAMP/rules` is
+vendored, the generator refuses any KSI that does not exist **or that claims none of
+the rule's own controls**, the snapshot version is stamped into every evidence file,
+and `sync_fedramp.py --check` runs weekly so the next drift is a failing job rather
+than a question from an assessor. The same drift exists in the flagship product —
+raised as sparc#1115.)
 
 ---
 
@@ -95,7 +95,7 @@ checklist.
 | Tracking issues | **9 filed** — #1 epic, #2–#8 domains, **#9 Phase 0** (active) |
 | Generator (`generate.py`) | **Built** (#13) — resolves, renders, validates, emits 5 artifacts. 22 tests |
 | ODP catalog (`odp/catalog.yaml`) | **7 ODPs (IAM domain)** — keyed to real Rev 5 OSCAL param ids, validated in CI (#11) |
-| Rule catalogs (`rules/<domain>.yaml`) | **1 / 6 partial** — `rules/iam.yaml`, the 7 rules binding #11's ODPs. #2 open for the full set |
+| Rule catalogs (`rules/<domain>.yaml`) | **1 / 6 partial** — `rules/iam.yaml`, re-keyed to real mnemonic KSI ids. #2 open for the full set |
 | Guard policies (`guard/`) | **Not started** — first needed by CRYPTO (#4) |
 | Overlays (`overlays/`) | **`overlays/vanilla.yaml`** — pristine reference, SPARC's `parameters[]` / `selections[]` shape |
 | Repo CI | **5 workflows.** secret-scan (+ fixture canary), pack-lint, CodeQL (python), 2 HDF emitters |
@@ -105,7 +105,7 @@ checklist.
 | Deployment `inputs.yml` contract | **Not designed** |
 | Reference pack available to mine | `sparc-iac` `AWS/ECS/modules/aws_config/` — 107 rules, awslabs NIST r5 pack trimmed for a Fargate boundary |
 | Evidence path | `risk-sentinel/aws-config` reusable workflow already fetches Config evaluations → HDF. Emit grant filed as **sparc-iac#701**; workflows degrade to build artifacts until it lands |
-| Highest-priority next work | **Phase 2 — #2 IAM**, completing the rule set the generator is already proven against. Open: SonarCloud onboarding for the 5th required context |
+| Highest-priority next work | **Phase 2 — all six domains**, now that KSI ids resolve against a vendored snapshot and the generator enforces them. Open: SonarCloud onboarding for the 5th required context |
 
 ---
 
@@ -352,6 +352,36 @@ Three decisions worth carrying into Phase 2:
 - **The lint runs the generator rather than re-checking it.** A second
   implementation would drift, and the drift presents as CI passing something the
   generator rejects, or the reverse.
+
+---
+
+## Provenance — vendored, version-stamped, derived ([#15](https://github.com/risk-sentinel/aws-conformance-packs/issues/15))
+
+`vendor/fedramp/` carries a pinned snapshot of FedRAMP's machine-readable
+Consolidated Rules, with a `PROVENANCE.md` recording source, upstream commit,
+version and SHA-256.
+
+**Why pinned rather than fetched.** 20x keeps changing until High locks around
+**2027-02**. Generating against a live fetch would let a pack's crosswalk change
+silently between two runs of the same command, and produce evidence that cannot
+say what it was assessed against.
+
+**What FedRAMP maintains so we do not.** Each indicator carries its own
+`controls[]` array of 800-53 ids — **373 mappings**. This repo consumes that
+crosswalk and does not own its accuracy.
+
+**Two enforcement rules, and the second is the one a shape check cannot do:**
+
+1. every `ksi:` entry must **exist** in the snapshot — kills stale ids, and names
+   real successors in the failure message while refusing to pretend the re-key is
+   1:1, because it is not;
+2. every `ksi:` entry must **claim at least one of the rule's own controls** —
+   kills a plausible-looking but wrong assignment, which is coverage asserted
+   that FedRAMP does not assert.
+
+**The lesson worth keeping.** The stale ids came from transcribing a rendered
+documentation page. Values copied from HTML cannot detect drift, because nothing
+compares them to anything. `sync_fedramp.py --check` runs weekly and on demand.
 
 ---
 
