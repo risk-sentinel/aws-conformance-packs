@@ -8,17 +8,18 @@ per-organization ODP overlay. It is a *generator and a deployment pattern*, not 
 profile: there are no InSpec controls here. Evidence leaves this repo as Config
 rule evaluations, which `risk-sentinel/aws-config` converts to HDF.
 
-**Last updated:** 2026-09-07 (**Phase 1 complete. #15 vendors the provenance and
-fixes a drift that had gone unnoticed: all 28 KSI ids in this repo were stale — 0 of
-28 existed.** FedRAMP re-keyed every indicator from numbered to mnemonic
-(`KSI-IAM-01` → `KSI-IAM-APM`), dropped the `TPR` family entirely, and added `SCR`.
-The root cause is that the ids were transcribed by hand from a rendered docs page,
-which cannot detect drift. Now: a version-stamped snapshot of `FedRAMP/rules` is
-vendored, the generator refuses any KSI that does not exist **or that claims none of
-the rule's own controls**, the snapshot version is stamped into every evidence file,
-and `sync_fedramp.py --check` runs weekly so the next drift is a failing job rather
-than a question from an assessor. The same drift exists in the flagship product —
-raised as sparc#1115.)
+**Last updated:** 2026-09-07 (**Phase 1 complete; provenance vendored; all three
+baselines generate.** #15 vendors FedRAMP's machine-readable rules and a derived NIST
+parameter index (226 KB from 10.6 MB of OSCAL), and adds `odp_lookup.py` so the 767
+parameters behind the remaining domains are derived rather than transcribed. It also
+fixed a gap that made **Low ungeneratable**: a rule binding a control outside the
+target baseline used to fail the build, so any catalog holding a Moderate-only rule
+blocked Low entirely. It is now a recorded **exclusion** — skipped, with its reason
+rendered into the coverage report, because coverage must never be inferred from
+absence. Earlier: all 28 KSI ids in the repo were stale (0 of 28 existed); the
+generator now refuses any KSI that does not exist or that claims none of the rule's
+own controls. Same drift raised on the flagship as sparc#1115. Next: the five
+remaining domain catalogs.)
 
 ---
 
@@ -97,7 +98,7 @@ checklist.
 | ODP catalog (`odp/catalog.yaml`) | **7 ODPs (IAM domain)** — keyed to real Rev 5 OSCAL param ids, validated in CI (#11) |
 | Rule catalogs (`rules/<domain>.yaml`) | **1 / 6 partial** — `rules/iam.yaml`, re-keyed to real mnemonic KSI ids. #2 open for the full set |
 | Guard policies (`guard/`) | **Not started** — first needed by CRYPTO (#4) |
-| Overlays (`overlays/`) | **`overlays/vanilla.yaml`** — pristine reference, SPARC's `parameters[]` / `selections[]` shape |
+| Overlays (`overlays/`) | **3** — `vanilla.yaml` (moderate), `vanilla-low.yaml`, `vanilla-high.yaml`. All three generate; Low records 2 exclusions |
 | Repo CI | **5 workflows.** secret-scan (+ fixture canary), pack-lint, CodeQL (python), 2 HDF emitters |
 | Branch protection | **Active ruleset** (id 22464078) — 4 required contexts, strict policy, PR + CODEOWNERS review, no deletion, no force-push. Admin bypass retained for the solo-owner case |
 | Secret-scan fixture canary | **Green** — proves the scanner still fires |
@@ -369,6 +370,23 @@ say what it was assessed against.
 **What FedRAMP maintains so we do not.** Each indicator carries its own
 `controls[]` array of 800-53 ids — **373 mappings**. This repo consumes that
 crosswalk and does not own its accuracy.
+
+**Derived, not transcribed.** `vendor/nist/nist-800-53r5-params.json` is a 226 KB
+index built by `tools/build_nist_index.py` from the three Rev 5 resolved
+baselines — 370 controls, 767 parameters, each with its canonical `_odp` id, its
+`_prm_` alt-identifier, its guidelines prose and **which baselines it resolves
+in**. `tools/odp_lookup.py` emits catalog-ready stubs from it. Neither tool
+guesses `type`, `constraint` or `default`: those are judgement calls about a
+specific AWS rule parameter, and a tool that filled them in would manufacture the
+unreviewed assertion the catalog exists to prevent. What they remove is the
+transcription step, which is where a wrong param id gets in — and a wrong id
+joins to nothing while looking entirely correct.
+
+**Baseline exclusions are recorded, never silent.** A rule binding a control
+outside the target baseline is skipped and listed in the coverage report with its
+reason. It used to be fatal, which meant a Low pack could not be built at all
+from a catalog containing any Moderate-only rule — not a safety property, just an
+unbuildable baseline.
 
 **Two enforcement rules, and the second is the one a shape check cannot do:**
 
