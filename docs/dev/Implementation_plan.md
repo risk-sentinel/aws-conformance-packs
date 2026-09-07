@@ -8,16 +8,17 @@ per-organization ODP overlay. It is a *generator and a deployment pattern*, not 
 profile: there are no InSpec controls here. Evidence leaves this repo as Config
 rule evaluations, which `risk-sentinel/aws-config` converts to HDF.
 
-**Last updated:** 2026-09-07 (**Phase 0 closed; Phase 1a in flight.** #9 landed the
-estate CI set and an active branch ruleset — four required contexts, PR + CODEOWNERS
-review, no force-push, no deletion. #11 adds the ODP catalog and the vanilla overlay,
-keyed to the real NIST Rev 5 OSCAL parameter ids rather than invented ones, which
-surfaced three findings that shaped the schema: Rev 5 ids are `ia-05.01_odp.02` and
-not `ia-5.1_prm_2`; an AWS rule parameter is **not** 1:1 with an ODP (three password
-knobs all express the single ODP "composition and complexity rules"); and baseline
-membership differs — `ac-2.3` is absent from Low entirely. Two items remain open from
-Phase 0 and neither is blocking: SonarCloud is not onboarded, so its context is not yet
-required, and the evidence-bucket emit grant is filed as sparc-iac#701.)
+**Last updated:** 2026-09-07 (**Phase 1 complete; Phase 2 is next.** #9 landed CI and
+an active branch ruleset. #11 settled the ODP schema against the real Rev 5 OSCAL
+parameter ids. #13 adds `generate.py`, the emitters and the shared control-id
+normalizer, proven against a partial IAM rule catalog that renders a real pack end
+to end — 7 rules, 7 parameters, 13 traceability rows. The generator is also the
+validator: it refuses rather than emitting a pack whose thresholds nobody chose,
+because a wrong value in a conformance pack does not crash, it deploys and reports
+clean. 22 tests, weighted toward those refusals. The rule-catalog lint check RUNS
+the generator rather than re-implementing its checks, so CI and the generator cannot
+drift apart. Two Phase 0 items remain open and neither blocks: SonarCloud is not
+onboarded, and the evidence-bucket emit grant is sparc-iac#701.)
 
 ---
 
@@ -92,10 +93,10 @@ checklist.
 | Bucket | Current state |
 |---|---|
 | Tracking issues | **9 filed** — #1 epic, #2–#8 domains, **#9 Phase 0** (active) |
-| Generator (`generate.py`) | **Not started** — next after #11 (Phase 1b) |
+| Generator (`generate.py`) | **Built** (#13) — resolves, renders, validates, emits 5 artifacts. 22 tests |
 | ODP catalog (`odp/catalog.yaml`) | **7 ODPs (IAM domain)** — keyed to real Rev 5 OSCAL param ids, validated in CI (#11) |
-| Rule catalogs (`rules/<domain>.yaml`) | **0 / 6** |
-| Guard policies (`guard/`) | **Not started** |
+| Rule catalogs (`rules/<domain>.yaml`) | **1 / 6 partial** — `rules/iam.yaml`, the 7 rules binding #11's ODPs. #2 open for the full set |
+| Guard policies (`guard/`) | **Not started** — first needed by CRYPTO (#4) |
 | Overlays (`overlays/`) | **`overlays/vanilla.yaml`** — pristine reference, SPARC's `parameters[]` / `selections[]` shape |
 | Repo CI | **5 workflows.** secret-scan (+ fixture canary), pack-lint, CodeQL (python), 2 HDF emitters |
 | Branch protection | **Active ruleset** (id 22464078) — 4 required contexts, strict policy, PR + CODEOWNERS review, no deletion, no force-push. Admin bypass retained for the solo-owner case |
@@ -104,7 +105,7 @@ checklist.
 | Deployment `inputs.yml` contract | **Not designed** |
 | Reference pack available to mine | `sparc-iac` `AWS/ECS/modules/aws_config/` — 107 rules, awslabs NIST r5 pack trimmed for a Fargate boundary |
 | Evidence path | `risk-sentinel/aws-config` reusable workflow already fetches Config evaluations → HDF. Emit grant filed as **sparc-iac#701**; workflows degrade to build artifacts until it lands |
-| Highest-priority next work | **#11 Phase 1a** (in flight), then **Phase 1b** the generator. Open: SonarCloud onboarding to add the 5th required context |
+| Highest-priority next work | **Phase 2 — #2 IAM**, completing the rule set the generator is already proven against. Open: SonarCloud onboarding for the 5th required context |
 
 ---
 
@@ -308,7 +309,7 @@ Same pristine-reference / consumer-copy split used elsewhere in the estate:
 `overlays/vanilla.yaml` is regenerated when the pattern changes; the consumer's
 own overlay is theirs and is never overwritten.
 
-### 1b — Generator and validators
+### 1b — Generator and validators ([#13](https://github.com/risk-sentinel/aws-conformance-packs/issues/13) — COMPLETE)
 
 `generate.py` renders and validates. Non-zero exit on: out-of-range values,
 undeclared ODP references, enum violations, port lists exceeding a rule's
@@ -319,21 +320,38 @@ Resolution precedence is **overlay → OSCAL `set-parameter` → catalog default
 with the winning source recorded per value as `assigned_by` in the traceability
 CSV. That provenance column is what an assessor asks for.
 
-### 1c — Emitters
+### 1c — Emitters ([#13](https://github.com/risk-sentinel/aws-conformance-packs/issues/13) — COMPLETE)
 
 `<pack>.yaml`, `<pack>.traceability.csv`, `<pack>.evidence-tags.json`,
 `<pack>.coverage.md`, and `<pack>.oscal-set-params.json` under `--emit-oscal`.
 Evidence tags pair the control id with **the ODP value the check measured
 against** — that pairing is the defensible part.
 
-### 1d — Control-id normalization, shared
+### 1d — Control-id normalization, shared ([#13](https://github.com/risk-sentinel/aws-conformance-packs/issues/13) — COMPLETE)
 
 One function, used by the pack generator and the GOV producer both. If GOV emits
 `AC-1` and a pack emits `ac-2`, the Heimdall rollup fragments (issue #8 calls
 this out explicitly).
 
-**Acceptance:** `generate.py --overlay overlays/example-agency.yaml` renders one
-pack end-to-end and every listed failure mode exits non-zero in CI.
+**Delivered.** `generate.py --overlay overlays/vanilla.yaml --emit-oscal` renders
+`800-53r5-IAM` — 7 rules, 7 parameters, 7,501 bytes, 13 traceability rows — and
+every listed failure mode exits non-zero, each negative-controlled.
+
+Three decisions worth carrying into Phase 2:
+
+- **The rendered CloudFormation copies the awslabs shape** —
+  `Parameter(Default)` + `Condition(not-empty)` + `Fn::If → Ref | AWS::NoValue`.
+  Not invented: it is what the packs `sparc-iac` already deploys look like, and
+  it preserves a real behaviour a bare `Ref` would lose — passing `''` at deploy
+  time falls back to the managed rule's own built-in default.
+- **`coverage_note` is rendered into the deployed rule `Description`.** A caveat
+  that lives only in the catalog is a caveat nobody reads; an operator looking at
+  the Config console sees the Identity Center limit on `iam-password-policy`
+  there. `partial` or `supporting` without a note is a build failure — an
+  unexplained partial is indistinguishable from an overstated `full`.
+- **The lint runs the generator rather than re-checking it.** A second
+  implementation would drift, and the drift presents as CI passing something the
+  generator rejects, or the reverse.
 
 ---
 

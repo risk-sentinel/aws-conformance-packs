@@ -392,16 +392,51 @@ def check_overlays(root: Path, rep: Report) -> None:
 
 
 def check_rule_catalogs(root: Path, rep: Report) -> None:
+    """Validate rule catalogs by RUNNING THE GENERATOR against them.
+
+    Deliberately not a second implementation of the same rules. generate.py
+    already refuses an undeclared ODP reference, a dishonest `coverage`, a KSI in
+    the 800-53 column, an out-of-baseline binding and every cap. A lint that
+    re-implemented those checks would drift from the generator, and the drift
+    would show up as CI passing something the generator rejects -- or worse, the
+    reverse.
+
+    The generated output is left in `_lint_out` for the cap check to measure, so
+    the caps are asserted against what was actually rendered rather than against
+    a hand-written template that may not resemble it.
+    """
     rules_dir = root / "rules"
     if not rules_dir.is_dir() or not any(rules_dir.glob("*.yaml")):
         rep.defer("Rule catalog schema", "rules/*.yaml do not exist yet (Phase 2)")
         return
-    rep.fail(
-        "rules/*.yaml exist but tools/lint_packs.py has no validator for them. "
-        "Each rule needs `controls`, an honest `coverage` value, and ODP bindings that "
-        "resolve against odp/catalog.yaml. Unresolvable ODP references are the defect "
-        "this check exists to catch."
+
+    gen = root / "generate.py"
+    if not gen.exists():
+        rep.fail(
+            "rules/*.yaml exist but generate.py does not. Nothing validates a rule "
+            "catalog's ODP bindings, coverage honesty or control crosswalk."
+        )
+        return
+
+    overlay = root / "overlays" / "vanilla.yaml"
+    if not overlay.exists():
+        rep.fail("rules/*.yaml exist but overlays/vanilla.yaml does not; nothing to render against")
+        return
+
+    out = root / "out" / "_lint"
+    r = subprocess.run(
+        [sys.executable, str(gen), "--overlay", str(overlay), "--out", str(out), "--emit-oscal"],
+        capture_output=True, text=True, cwd=root,
     )
+    if r.returncode != 0:
+        rep.fail(f"generator rejected the rule catalogs:\n{r.stdout}{r.stderr}".strip())
+        return
+
+    n = len(list(rules_dir.glob("*.yaml")))
+    rep.ok(f"Rule catalog schema: {n} catalog(s) render and validate")
+    for line in r.stdout.splitlines():
+        if line and not line.startswith("  wrote"):
+            print(f"  {line}")
 
 
 def check_guard_policies(root: Path, rep: Report) -> None:

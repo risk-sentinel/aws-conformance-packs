@@ -83,6 +83,25 @@ jobs:
           echo "$out" | grep -qE '^[1-9][0-9]* passed' \
             || { echo "::error::Pack lint reported zero passing checks — the lint did not run."; exit 1; }
 
+      - name: Generator tests
+        run: |
+          set -uo pipefail
+          # Weighted toward refusals. A conformance pack does not crash when it is
+          # wrong -- it deploys and reports a clean result against a threshold
+          # nobody chose -- so most of what these assert is that the generator
+          # REFUSES. pytest ships in the ci-runner image.
+          out=$(docker run --rm -v "$PWD:/work" -w /work --entrypoint python3 \
+                  "${CI_RUNNER_IMAGE}" -m pytest tests/ -q 2>&1) && rc=0 || rc=$?
+          echo "$out"
+          if [ "$rc" -ne 0 ]; then
+            echo "::error::Generator tests failed."
+            exit 1
+          fi
+          # A suite that collected nothing exits 0 and looks identical to a suite
+          # that passed. Assert a non-zero count.
+          echo "$out" | grep -qE '[1-9][0-9]* passed' \
+            || { echo "::error::pytest reported no passing tests -- the suite did not run."; exit 1; }
+
       # PR ceremony: the plan is the repository's memory of what is done and what
       # is next. A plan that is updated only when someone remembers is a plan that
       # silently goes stale, and a stale roadmap is worse than none -- it is read
