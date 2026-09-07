@@ -1,0 +1,223 @@
+"""Generator tests, weighted toward the failures that matter.
+
+A conformance pack does not crash when it is wrong. It deploys, evaluates, and
+reports a clean result against a threshold nobody chose. So most of what is
+tested here is that the generator REFUSES -- a guard that has never been shown to
+fail is not a guard.
+
+    python3 -m pytest tests/test_generate.py -q
+"""
+
+from __future__ import annotations
+
+import copy
+import json
+import sys
+from pathlib import Path
+
+import pytest
+import yaml
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import generate  # noqa: E402
+from generate import GenerationError  # noqa: E402
+
+ROOT = Path(__file__).resolve().parents[1]
+CATALOG = yaml.safe_load((ROOT / "odp/catalog.yaml").read_text())
+OVERLAY = yaml.safe_load((ROOT / "overlays/vanilla.yaml").read_text())
+RULES = yaml.safe_load((ROOT / "rules/iam.yaml").read_text())
+
+
+def cat(): return copy.deepcopy(CATALOG)
+def ov(): return copy.deepcopy(OVERLAY)
+def rl(): return copy.deepcopy(RULES)
+
+
+# --- precedence -------------------------------------------------------------
+
+def test_overlay_wins_and_is_attributed():
+    r = generate.resolve(cat(), ov(), None)
+    assert r["password_minimum_length"].value == 14
+    assert r["password_minimum_length"].assigned_by == "overlay"
+
+
+def test_catalog_default_used_when_overlay_silent():
+    o = ov()
+    o["parameters"] = [p for p in o["parameters"] if p["param_id"] != "password_minimum_length"]
+    r = generate.resolve(cat(), o, None)
+    assert r["password_minimum_length"].value == 14
+    # The value is identical to the overlay's; only `assigned_by` distinguishes a
+    # decision from a fallback. That column is the entire point.
+    assert r["password_minimum_length"].assigned_by == "catalog-default"
+
+
+def test_oscal_beats_default_and_loses_to_overlay():
+    o = ov()
+    o["parameters"] = [p for p in o["parameters"] if p["param_id"] != "password_minimum_length"]
+    oscal = {"set-parameters": [{"param-id": "ia-05.01_odp.02", "values": ["20"]}]}
+    r = generate.resolve(cat(), o, oscal)
+    assert r["password_minimum_length"].value == 20
+    assert r["password_minimum_length"].assigned_by == "oscal-set-parameter"
+
+    r2 = generate.resolve(cat(), ov(), oscal)          # overlay present this time
+    assert r2["password_minimum_length"].value == 14
+    assert r2["password_minimum_length"].assigned_by == "overlay"
+
+
+def test_oscal_set_parameter_fans_out_to_every_joined_odp():
+    """One OSCAL param legitimately drives several ODPs -- the many-to-one case."""
+    o = ov()
+    o["parameters"] = []
+    oscal = {"set-parameters": [{"param-id": "ia-05.01_odp.02", "values": ["20"]}]}
+    r = generate.resolve(cat(), o, oscal)
+    for k in ("password_minimum_length", "password_maximum_age_days", "password_reuse_prevention"):
+        assert r[k].value == 20, k
+        assert r[k].assigned_by == "oscal-set-parameter"
+
+
+def test_oscal_string_coerced_for_integer_odp():
+    o = ov(); o["parameters"] = []
+    oscal = {"set-parameters": [{"param-id": "ia-5_prm_1", "values": ["45"]}]}   # alt id
+    r = generate.resolve(cat(), o, oscal)
+    assert r["access_key_maximum_age_days"].value == 45
+
+
+# --- resolution refusals ----------------------------------------------------
+
+def test_overlay_value_out_of_range_refused():
+    o = ov(); o["parameters"][0] = {"param_id": "password_minimum_length", "value": 999}
+    with pytest.raises(GenerationError, match="above the maximum"):
+        generate.resolve(cat(), o, None)
+
+
+def test_oscal_value_out_of_range_refused():
+    """A tailored profile is not more trusted than an overlay."""
+    o = ov(); o["parameters"] = []
+    oscal = {"set-parameters": [{"param-id": "ia-05.01_odp.02", "values": ["999"]}]}
+    with pytest.raises(GenerationError, match="above the maximum"):
+        generate.resolve(cat(), o, oscal)
+
+
+def test_undeclared_overlay_param_refused():
+    o = ov(); o["parameters"].append({"param_id": "nope", "value": 1})
+    with pytest.raises(GenerationError, match="does not declare"):
+        generate.resolve(cat(), o, None)
+
+
+def test_unjoined_oscal_param_refused():
+    oscal = {"set-parameters": [{"param-id": "zz-99_odp.01", "values": ["1"]}]}
+    with pytest.raises(GenerationError, match="no ODP"):
+        generate.resolve(cat(), ov(), oscal)
+
+
+def test_multivalued_oscal_set_parameter_refused():
+    oscal = {"set-parameters": [{"param-id": "ia-05_odp.01", "values": ["1", "2"]}]}
+    with pytest.raises(GenerationError, match="carries 2 values"):
+        generate.resolve(cat(), ov(), oscal)
+
+
+# --- render refusals --------------------------------------------------------
+
+def test_rule_binding_undeclared_odp_refused():
+    r = rl(); r["rules"]["access-keys-rotated"]["parameters"]["maxAccessKeyAge"]["odp"] = "ghost"
+    with pytest.raises(GenerationError, match="does not declare"):
+        generate.render_pack(cat(), r, generate.resolve(cat(), ov(), None), "moderate")
+
+
+def test_odp_outside_target_baseline_refused():
+    """ac-2.3 is absent from Low; a rule binding it must not render into a Low pack."""
+    with pytest.raises(GenerationError, match="not in the low baseline"):
+        generate.render_pack(cat(), rl(), generate.resolve(cat(), ov(), None), "low")
+
+
+# --- cap and placeholder refusals -------------------------------------------
+
+def _rendered(rules_doc, baseline="moderate"):
+    t, _ = generate.render_pack(cat(), rules_doc, generate.resolve(cat(), ov(), None), baseline)
+    return t, yaml.safe_dump(t, sort_keys=False).encode()
+
+
+def test_rule_cap_refused():
+    t, body = _rendered(rl())
+    one = next(iter(t["Resources"].values()))
+    for i in range(generate.MAX_RULES_PER_PACK + 1):
+        t["Resources"][f"Filler{i}"] = copy.deepcopy(one)
+    with pytest.raises(GenerationError, match="exceeds the hard cap of 130"):
+        generate.validate_rendered(t, body, rl())
+
+
+def test_parameter_cap_refused():
+    t, body = _rendered(rl())
+    for i in range(generate.MAX_PARAMS_PER_PACK + 1):
+        t["Parameters"][f"Filler{i}"] = {"Type": "String", "Default": "1"}
+    with pytest.raises(GenerationError, match="exceeds the hard cap of 60"):
+        generate.validate_rendered(t, body, rl())
+
+
+def test_s3_template_size_refused():
+    t, _ = _rendered(rl())
+    with pytest.raises(GenerationError, match="S3 template limit"):
+        generate.validate_rendered(t, b"x" * (generate.MAX_S3_TEMPLATE_BYTES + 1), rl())
+
+
+def test_inline_size_is_a_note_not_a_failure():
+    """Over inline but under S3 is a real, deployable pack -- it just needs staging."""
+    t, _ = _rendered(rl())
+    notes = generate.validate_rendered(t, b"x" * (generate.MAX_INLINE_TEMPLATE_BYTES + 1), rl())
+    assert any("template-s3-uri" in n for n in notes)
+
+
+def test_unsubstituted_guard_token_refused():
+    t, _ = _rendered(rl())
+    with pytest.raises(GenerationError, match="placeholder"):
+        generate.validate_rendered(t, b"Resources:\n  X:\n    P: {{RotationPeriodInDays}}\n", rl())
+
+
+# --- honesty of the catalog itself ------------------------------------------
+
+def test_partial_coverage_without_a_note_refused(tmp_path):
+    r = rl(); r["rules"]["iam-user-mfa-enabled"].pop("coverage_note")
+    (tmp_path / "iam.yaml").write_text(yaml.safe_dump(r))
+    rc = _run_cli(tmp_path, ["--rules", str(tmp_path / "iam.yaml")])
+    assert rc == 1
+
+
+def test_ksi_in_the_800_53_column_refused(tmp_path):
+    r = rl(); r["rules"]["iam-user-mfa-enabled"]["controls"]["nist_800_53_r5"] = ["KSI-IAM-01"]
+    (tmp_path / "iam.yaml").write_text(yaml.safe_dump(r))
+    assert _run_cli(tmp_path, ["--rules", str(tmp_path / "iam.yaml")]) == 1
+
+
+def _run_cli(tmp_path, extra):
+    import subprocess
+    return subprocess.run(
+        [sys.executable, str(ROOT / "generate.py"), "--overlay", str(ROOT / "overlays/vanilla.yaml"),
+         "--catalog", str(ROOT / "odp/catalog.yaml"), "--out", str(tmp_path / "out"), *extra],
+        capture_output=True, text=True, cwd=ROOT,
+    ).returncode
+
+
+# --- emitted artifacts ------------------------------------------------------
+
+def test_evidence_tags_pair_control_with_the_value_measured_against(tmp_path):
+    assert _run_cli(tmp_path, []) == 0
+    tags = json.loads((tmp_path / "out/800-53r5-IAM.evidence-tags.json").read_text())
+    rule = next(r for r in tags["rules"] if r["rule"] == "iam-password-policy")
+    m = rule["measured_against"]["MinimumPasswordLength"]
+    assert m["value"] == 14 and m["assigned_by"] == "overlay"
+    assert "ia-5.1" in rule["controls"]
+
+
+def test_coverage_report_states_its_denominator(tmp_path):
+    assert _run_cli(tmp_path, []) == 0
+    md = (tmp_path / "out/800-53r5-IAM.coverage.md").read_text()
+    assert "not the size of the baseline" in md
+    assert "`INSUFFICIENT_DATA` is not compliance" in md
+    assert "Region scope: global" in md
+
+
+def test_control_ids_are_normalized_in_traceability(tmp_path):
+    assert _run_cli(tmp_path, []) == 0
+    csv_text = (tmp_path / "out/800-53r5-IAM.traceability.csv").read_text()
+    assert "ac-2.3" in csv_text
+    assert "AC-2(3)" not in csv_text and "ac-02.03," not in csv_text

@@ -1,0 +1,164 @@
+# Rule catalog — Identity & Access (IAM). Portable: no organization values, no
+# organization control names. Values live in an overlay; this file says only
+# WHICH knob a rule exposes and WHICH control it speaks to.
+#
+# PARTIAL. This covers the rules that bind the ODPs settled in #11, which is
+# enough to render a pack end to end and prove the generator. Issue #2 remains
+# open for the full IAM rule set, the recorder-prerequisite check, and the
+# region pinning.
+#
+# ---------------------------------------------------------------------------
+# ON THE `coverage` FIELD
+# ---------------------------------------------------------------------------
+# `full`       the rule substantively evaluates the control for the resources
+#              in scope
+# `partial`    the rule evaluates part of the control, or evaluates it in a way
+#              that can pass while the control's intent is unmet. REQUIRES a
+#              `coverage_note`, and that note is rendered into the deployed rule
+#              description -- not left in this file where an operator reading a
+#              Config console will never see it
+# `supporting` the rule is evidence toward the control but does not evaluate it
+#
+# The traceability report is only worth reading if this field is honest. An
+# overstated `full` is not a documentation defect; it is a false assurance that
+# reaches an assessor.
+
+version: 1
+domain: IAM
+pack_slug: 800-53r5-IAM
+
+# IAM is a GLOBAL resource type, recorded in exactly one Region. A pack carrying
+# these rules reports INSUFFICIENT_DATA in every other Region -- which most
+# dashboards render as "not failing". The generator stamps this into the coverage
+# report so the constraint travels with the pack.
+region_scope: global
+
+# Asserted by the recorder-prerequisite check: a rule scoped to a resource type
+# the recorder is not capturing never evaluates, and reports INSUFFICIENT_DATA
+# rather than failing.
+required_resource_types:
+  - AWS::IAM::User
+  - AWS::IAM::Policy
+  - AWS::SecretsManager::Secret
+
+rules:
+
+  iam-password-policy:
+    source: managed
+    identifier: IAM_PASSWORD_POLICY
+    description: >-
+      The account IAM password policy meets the organization-defined composition
+      and complexity rules.
+    resource_types: [AWS::IAM::User]
+    controls:
+      nist_800_53_r5: [ia-5.1, ia-5]
+      ksi: [KSI-IAM-02]
+    coverage: partial
+    coverage_note: >-
+      Evaluates the ACCOUNT-LEVEL IAM password policy only. Where the
+      organization authenticates through IAM Identity Center or an external IdP,
+      this rule passes vacuously while the password policy that actually governs
+      human sign-in sits where AWS Config cannot see it. Do not read a PASS here
+      as evidence that ia-5.1 is met for federated identities.
+    parameters:
+      MinimumPasswordLength: { odp: password_minimum_length }
+      MaxPasswordAge: { odp: password_maximum_age_days }
+      PasswordReusePrevention: { odp: password_reuse_prevention }
+
+  access-keys-rotated:
+    source: managed
+    identifier: ACCESS_KEYS_ROTATED
+    description: >-
+      Active IAM static access keys are rotated within the organization-defined
+      period.
+    resource_types: [AWS::IAM::User]
+    controls:
+      nist_800_53_r5: [ia-5]
+      ksi: [KSI-IAM-03]
+    coverage: full
+    periodic: true
+    periodic_note: >-
+      Derived from the IAM credential report, which AWS regenerates roughly every
+      four hours. Evidence lags reality by up to that interval.
+    parameters:
+      maxAccessKeyAge: { odp: access_key_maximum_age_days }
+
+  iam-user-unused-credentials-check:
+    source: managed
+    identifier: IAM_USER_UNUSED_CREDENTIALS_CHECK
+    description: >-
+      IAM credentials unused beyond the organization-defined inactivity period
+      are disabled.
+    resource_types: [AWS::IAM::User]
+    controls:
+      nist_800_53_r5: [ac-2.3]
+      ksi: [KSI-IAM-05]
+    coverage: full
+    periodic: true
+    periodic_note: >-
+      Derived from the IAM credential report; evidence lags reality by up to
+      roughly four hours.
+    parameters:
+      maxCredentialUsageAge: { odp: credential_inactivity_days }
+
+  secretsmanager-secret-periodic-rotation:
+    source: managed
+    identifier: SECRETSMANAGER_SECRET_PERIODIC_ROTATION
+    description: >-
+      Secrets Manager secrets are rotated within the organization-defined period.
+    resource_types: [AWS::SecretsManager::Secret]
+    controls:
+      nist_800_53_r5: [ia-5]
+      ksi: [KSI-IAM-03]
+    coverage: full
+    parameters:
+      maxDaysSinceRotation: { odp: secret_rotation_period_days }
+
+  secretsmanager-secret-unused:
+    source: managed
+    identifier: SECRETSMANAGER_SECRET_UNUSED
+    description: >-
+      Secrets Manager secrets unaccessed beyond the organization-defined period
+      are identified for review.
+    resource_types: [AWS::SecretsManager::Secret]
+    controls:
+      nist_800_53_r5: [ac-2.3]
+      ksi: [KSI-IAM-05]
+    coverage: supporting
+    coverage_note: >-
+      An unused secret is an indicator, not a disabled account. This supports
+      ac-2.3 rather than evaluating it -- the control asks that accounts be
+      disabled, and nothing here disables anything.
+    parameters:
+      unusedForDays: { odp: secret_unused_days }
+
+  iam-user-mfa-enabled:
+    source: managed
+    identifier: IAM_USER_MFA_ENABLED
+    description: >-
+      IAM users have multi-factor authentication enabled.
+    resource_types: [AWS::IAM::User]
+    controls:
+      nist_800_53_r5: [ia-2.1, ia-2.2]
+      ksi: [KSI-IAM-01]
+    coverage: partial
+    coverage_note: >-
+      Sees only THAT multi-factor authentication exists, never which factor.
+      KSI-IAM-01 asks specifically for phishing-resistant methods; a virtual TOTP
+      authenticator passes this rule and does not satisfy that indicator. Treat a
+      PASS as evidence of MFA presence, not of phishing resistance.
+
+  root-account-mfa-enabled:
+    source: managed
+    identifier: ROOT_ACCOUNT_MFA_ENABLED
+    description: >-
+      The account root user has multi-factor authentication enabled.
+    resource_types: [AWS::IAM::User]
+    controls:
+      nist_800_53_r5: [ia-2.1]
+      ksi: [KSI-IAM-01]
+    coverage: partial
+    coverage_note: >-
+      Evaluates ONCE PER ACCOUNT rather than per resource, so in an aggregated
+      multi-account view this is a single finding covering a whole account. It
+      also cannot distinguish a hardware factor from a virtual one.
