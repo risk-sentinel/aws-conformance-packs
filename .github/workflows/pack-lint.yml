@@ -78,6 +78,48 @@ jobs:
           echo "$out" | grep -qE '^[1-9][0-9]* passed' \
             || { echo "::error::Pack lint reported zero passing checks — the lint did not run."; exit 1; }
 
+      # PR ceremony: the plan is the repository's memory of what is done and what
+      # is next. A plan that is updated only when someone remembers is a plan that
+      # silently goes stale, and a stale roadmap is worse than none -- it is read
+      # as current. So this is a check rather than a convention.
+      #
+      # The escape hatch requires a REASON, deliberately. The same principle as
+      # suppressions in docs/dev/issue_rules.md: the act is legitimate, and it is
+      # the unexamined one that is not.
+      - name: Implementation plan updated
+        if: github.event_name == 'pull_request'
+        env:
+          # Via env, never inlined into the script: a PR body is attacker-supplied
+          # text, and interpolating it directly into `run:` is a script-injection.
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          changed=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
+          echo "Files changed in this PR:"; echo "$changed" | sed 's/^/  /'
+
+          # Docs-only PRs have nothing to record; they ARE the record.
+          substantive=$(echo "$changed" | grep -v '^docs/' || true)
+          if [ -z "$substantive" ]; then
+            echo "::notice::Docs-only change; no plan update required."
+            exit 0
+          fi
+
+          if echo "$changed" | grep -qx 'docs/dev/Implementation_plan.md'; then
+            echo "PASS — Implementation_plan.md is updated in this PR."
+            exit 0
+          fi
+
+          if printf '%s' "$PR_BODY" | grep -qiE '^[[:space:]]*Plan-Update:[[:space:]]*not-required[[:space:]]*[-—:][[:space:]]*[^[:space:]]'; then
+            echo "::notice::Plan update waived with a stated reason:"
+            printf '%s' "$PR_BODY" | grep -iE '^[[:space:]]*Plan-Update:' | sed 's/^/  /'
+            exit 0
+          fi
+
+          echo "::error::This PR changes files outside docs/ but does not update docs/dev/Implementation_plan.md. Update the status snapshot and the phase this touches, or state why it is not needed by adding a line to the PR body of the form: Plan-Update: not-required — <reason>"
+          exit 1
+
       - name: Publish coverage to the job summary
         if: always()
         run: |

@@ -1,0 +1,79 @@
+# Vanilla overlay — PRISTINE REFERENCE. Copy it; do not edit it in place.
+#
+# This file is regenerated when the catalog pattern changes, so edits here are
+# lost. Copy it to `overlays/<your-org>.yaml`, change the values, and point the
+# generator at your copy:
+#
+#     cp overlays/vanilla.yaml overlays/my-agency.yaml
+#     python3 generate.py --overlay overlays/my-agency.yaml
+#
+# Same split as inputs.template.yml / inputs.yml elsewhere in this estate: the
+# reference is ours and moves, your copy is yours and never gets overwritten.
+#
+# ---------------------------------------------------------------------------
+# THESE VALUES ARE A TEACHING DEFAULT, NOT A RECOMMENDATION
+# ---------------------------------------------------------------------------
+# They are the awslabs "Operational Best Practices for NIST 800-53 Rev 5" values
+# that risk-sentinel/sparc-iac already deploys. They are here because a reader
+# recognises them on sight, so what has to be learned is the MECHANISM rather
+# than the numbers.
+#
+# Your organization's values come from your tailoring, your SSP, and your
+# authorizing official -- not from this file. Anything left unchanged is
+# recorded in the traceability report as `assigned_by: vanilla-default`, so an
+# untouched default is always visibly a default and is never mistaken for a
+# decision somebody made.
+#
+# ---------------------------------------------------------------------------
+# SHAPE
+# ---------------------------------------------------------------------------
+# `parameters[]` and `selections[]` mirror SPARC's baseline-parameters API
+# (GET /api/v1/profile_documents/:slug/parameters), so a value written here can
+# be pushed to that API and a tailored baseline exported from it can be read
+# back here without a translation step.
+#
+# One difference, and it is deliberate: `param_id` here is the CATALOG's ODP
+# key, not the raw OSCAL id. It has to be. Three of the entries below all
+# satisfy the single OSCAL parameter ia-05.01_odp.02 ("composition and
+# complexity rules"), and keying on the OSCAL id could not tell them apart.
+# odp/catalog.yaml carries the join to `oscal_param_id` / `oscal_alt_id`.
+
+baseline_level: moderate
+
+parameters:
+
+  # --- ia-5.1 -> ia-05.01_odp.02 (composition and complexity rules) ----------
+
+  - param_id: password_minimum_length
+    value: 14
+
+  - param_id: password_maximum_age_days
+    value: 90
+
+  - param_id: password_reuse_prevention
+    value: 24
+
+  # --- ia-5 -> ia-05_odp.01 (time period by authenticator type) -------------
+
+  - param_id: access_key_maximum_age_days
+    value: 90
+
+  - param_id: secret_rotation_period_days
+    value: 90
+
+  # --- ac-2.3 -> ac-02.03_odp.02 (inactivity before disabling) --------------
+  #
+  # ac-2.3 is NOT in the Low baseline. Under `baseline_level: low` these two do
+  # not render into the pack, and the generator says so rather than silently
+  # dropping them.
+
+  - param_id: credential_inactivity_days
+    value: 90
+
+  - param_id: secret_unused_days
+    value: 90
+
+# No enumerated selections are in scope for the IAM domain yet. The key is
+# present so the file matches SPARC's response envelope, which always carries
+# both collections.
+selections: []

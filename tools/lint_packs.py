@@ -25,6 +25,7 @@ Exit:   0 all applicable checks passed;  1 a check failed or a validator is owed
 from __future__ import annotations
 
 import argparse
+import re
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -163,18 +164,231 @@ def check_python_compiles(root: Path, rep: Report) -> None:
         rep.ok(f"Python syntax: {len(files)} file(s)")
 
 
+VALID_BASELINES = ("low", "moderate", "high")
+VALID_TYPES = ("integer", "string", "boolean", "enum")
+REQUIRED_ODP_FIELDS = (
+    "description", "control", "oscal_param_id", "oscal_alt_id",
+    "oscal_label", "baselines", "type", "constraint", "default",
+)
+# Rev 5 canonical form: zero-padded control, `_odp`, optional `.NN`.
+OSCAL_PARAM_RE = re.compile(r"^[a-z]{2}-\d{2}(\.\d{2})?_odp(\.\d{2})?$")
+ODP_KEY_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+
+
+def _violates_constraint(value, odp: dict) -> str | None:
+    """Return a human reason the value is not legal for this ODP, else None."""
+    typ = odp.get("type")
+    con = odp.get("constraint") or {}
+    if typ == "integer":
+        if isinstance(value, bool) or not isinstance(value, int):
+            return f"expected an integer, got {type(value).__name__} ({value!r})"
+        lo, hi = con.get("min"), con.get("max")
+        if lo is not None and value < lo:
+            return f"{value} is below the minimum of {lo}"
+        if hi is not None and value > hi:
+            return f"{value} is above the maximum of {hi}"
+    elif typ == "boolean":
+        if not isinstance(value, bool):
+            return f"expected a boolean, got {type(value).__name__} ({value!r})"
+    elif typ == "enum":
+        allowed = con.get("values") or []
+        if value not in allowed:
+            return f"{value!r} is not one of {allowed}"
+    elif typ == "string":
+        if not isinstance(value, str):
+            return f"expected a string, got {type(value).__name__} ({value!r})"
+        if (mx := con.get("max_length")) and len(value) > mx:
+            return f"length {len(value)} exceeds max_length {mx}"
+    return None
+
+
 def check_odp_catalog(root: Path, rep: Report) -> None:
+    """Validate odp/catalog.yaml.
+
+    The check that matters most here is that a `default` satisfies its own
+    `constraint`. A catalog whose declared range excludes its own default is not
+    a theoretical defect -- it renders a pack whose threshold the catalog itself
+    calls illegal, and nothing downstream re-checks it.
+    """
     path = root / "odp" / "catalog.yaml"
     if not path.exists():
         rep.defer("ODP catalog schema", "odp/catalog.yaml does not exist yet (Phase 1a)")
         return
-    rep.fail(
-        "odp/catalog.yaml exists but tools/lint_packs.py has no validator for it. "
-        "The catalog must be checked for: OSCAL param_id keys, a declared type, a "
-        "constraint, and baseline_level coverage. Write that validator before merging "
-        "the catalog -- a catalog nothing validates is how a bad threshold reaches a "
-        "deployed pack."
-    )
+
+    try:
+        doc = yaml.safe_load(path.read_text()) or {}
+    except yaml.YAMLError as exc:
+        rep.fail(f"odp/catalog.yaml does not parse -- {exc}")
+        return
+
+    if not isinstance(doc, dict) or "odps" not in doc:
+        rep.fail("odp/catalog.yaml has no top-level `odps` mapping")
+        return
+    if "version" not in doc:
+        rep.fail("odp/catalog.yaml has no top-level `version`")
+
+    odps = doc.get("odps") or {}
+    if not isinstance(odps, dict) or not odps:
+        rep.fail("odp/catalog.yaml `odps` is empty or not a mapping")
+        return
+
+    bad = 0
+    by_oscal: dict[str, list[str]] = {}
+
+    for key, odp in odps.items():
+        where = f"odp/catalog.yaml:{key}"
+        if not ODP_KEY_RE.match(str(key)):
+            rep.fail(f"{where}: key must be lower snake_case")
+            bad += 1
+        if not isinstance(odp, dict):
+            rep.fail(f"{where}: entry is not a mapping")
+            bad += 1
+            continue
+
+        for field in REQUIRED_ODP_FIELDS:
+            if field not in odp:
+                rep.fail(f"{where}: missing required field `{field}`")
+                bad += 1
+        if any(f not in odp for f in REQUIRED_ODP_FIELDS):
+            continue
+
+        pid = str(odp["oscal_param_id"])
+        if not OSCAL_PARAM_RE.match(pid):
+            rep.fail(
+                f"{where}: oscal_param_id {pid!r} is not a Rev 5 parameter id. "
+                f"Rev 5 uses the zero-padded `_odp` form (ia-05.01_odp.02); the "
+                f"`_prm_` form belongs in oscal_alt_id."
+            )
+            bad += 1
+        by_oscal.setdefault(pid, []).append(str(key))
+
+        bl = odp["baselines"]
+        if not isinstance(bl, list) or not bl:
+            rep.fail(f"{where}: `baselines` must be a non-empty list")
+            bad += 1
+        elif [b for b in bl if b not in VALID_BASELINES]:
+            rep.fail(f"{where}: unknown baseline(s) {[b for b in bl if b not in VALID_BASELINES]}")
+            bad += 1
+
+        if odp["type"] not in VALID_TYPES:
+            rep.fail(f"{where}: unknown type {odp['type']!r}; expected one of {list(VALID_TYPES)}")
+            bad += 1
+            continue
+
+        con = odp.get("constraint")
+        if not isinstance(con, dict):
+            rep.fail(f"{where}: `constraint` must be a mapping (use {{}} only if genuinely unbounded)")
+            bad += 1
+            continue
+        if odp["type"] == "integer":
+            lo, hi = con.get("min"), con.get("max")
+            if lo is None or hi is None:
+                rep.fail(f"{where}: an integer ODP needs both `min` and `max`")
+                bad += 1
+            elif lo > hi:
+                rep.fail(f"{where}: constraint min {lo} is greater than max {hi}")
+                bad += 1
+        if odp["type"] == "enum" and not con.get("values"):
+            rep.fail(f"{where}: an enum ODP needs `constraint.values`")
+            bad += 1
+
+        # The one that catches a catalog contradicting itself.
+        if (reason := _violates_constraint(odp["default"], odp)):
+            rep.fail(f"{where}: default violates its own constraint -- {reason}")
+            bad += 1
+
+    # Several ODPs may legitimately share one OSCAL parameter, but they must
+    # agree about what that parameter IS. Disagreement means the join is wrong
+    # in at least one of them, and the traceability report would carry both.
+    for pid, keys in by_oscal.items():
+        if len(keys) < 2:
+            continue
+        for field in ("control", "oscal_label", "oscal_alt_id"):
+            vals = {str(odps[k].get(field)) for k in keys}
+            if len(vals) > 1:
+                rep.fail(
+                    f"odp/catalog.yaml: {keys} share oscal_param_id {pid} but disagree "
+                    f"on `{field}` ({sorted(vals)}). Sharing a parameter is expected; "
+                    f"describing it differently is a mis-binding."
+                )
+                bad += 1
+
+    if not bad:
+        shared = {p: k for p, k in by_oscal.items() if len(k) > 1}
+        note = f"; {len(shared)} OSCAL param(s) shared by multiple ODPs" if shared else ""
+        rep.ok(f"ODP catalog schema: {len(odps)} ODP(s){note}")
+
+
+def check_overlays(root: Path, rep: Report) -> None:
+    """Validate overlays against the catalog.
+
+    An overlay naming an ODP the catalog does not declare is the defect this
+    exists for: it renders nothing, changes nothing, and looks like a decision
+    that was applied.
+    """
+    overlay_dir = root / "overlays"
+    overlays = sorted(overlay_dir.glob("*.yaml")) if overlay_dir.is_dir() else []
+    if not overlays:
+        rep.defer("Overlay values", "overlays/*.yaml do not exist yet (Phase 1a)")
+        return
+
+    cat_path = root / "odp" / "catalog.yaml"
+    if not cat_path.exists():
+        rep.fail("overlays/ exist but odp/catalog.yaml does not -- nothing can validate their values")
+        return
+    odps = (yaml.safe_load(cat_path.read_text()) or {}).get("odps") or {}
+
+    bad = 0
+    for ov in overlays:
+        where = ov.relative_to(root)
+        try:
+            doc = yaml.safe_load(ov.read_text()) or {}
+        except yaml.YAMLError as exc:
+            rep.fail(f"{where}: does not parse -- {exc}")
+            bad += 1
+            continue
+
+        level = doc.get("baseline_level")
+        if level not in VALID_BASELINES:
+            rep.fail(f"{where}: baseline_level {level!r} is not one of {list(VALID_BASELINES)}")
+            bad += 1
+
+        for coll in ("parameters", "selections"):
+            if coll not in doc:
+                rep.fail(
+                    f"{where}: missing `{coll}`. Both collections are always present in "
+                    f"SPARC's response envelope; an empty list is how you say 'none'."
+                )
+                bad += 1
+
+        seen: set[str] = set()
+        for entry in doc.get("parameters") or []:
+            pid = entry.get("param_id")
+            if pid in seen:
+                rep.fail(f"{where}: param_id {pid!r} appears more than once")
+                bad += 1
+            seen.add(pid)
+
+            odp = odps.get(pid)
+            if odp is None:
+                rep.fail(
+                    f"{where}: param_id {pid!r} is not declared in odp/catalog.yaml. "
+                    f"It would render nothing while looking like an applied decision."
+                )
+                bad += 1
+                continue
+            if (reason := _violates_constraint(entry.get("value"), odp)):
+                rep.fail(f"{where}: {pid} -- {reason}")
+                bad += 1
+            elif level in VALID_BASELINES and level not in (odp.get("baselines") or []):
+                # Not a failure: one overlay is meant to serve several baselines.
+                print(
+                    f"::notice::{where}: {pid} is set but its control {odp.get('control')} "
+                    f"is not in the {level} baseline, so it will not render into that pack."
+                )
+
+    if not bad:
+        rep.ok(f"Overlay values: {len(overlays)} overlay(s) against {len(odps)} ODP(s)")
 
 
 def check_rule_catalogs(root: Path, rep: Report) -> None:
@@ -259,6 +473,7 @@ CHECKS = (
     check_issue_front_matter,
     check_python_compiles,
     check_odp_catalog,
+    check_overlays,
     check_rule_catalogs,
     check_guard_policies,
     check_generated_packs,

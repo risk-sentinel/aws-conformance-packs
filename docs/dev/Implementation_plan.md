@@ -8,14 +8,16 @@ per-organization ODP overlay. It is a *generator and a deployment pattern*, not 
 profile: there are no InSpec controls here. Evidence leaves this repo as Config
 rule evaluations, which `risk-sentinel/aws-config` converts to HDF.
 
-**Last updated:** 2026-09-07 (**Repo is design-stage.** `README.md` specifies the
-target system; none of it is built. Issues [#1](https://github.com/risk-sentinel/aws-conformance-packs/issues/1)–[#8](https://github.com/risk-sentinel/aws-conformance-packs/issues/8)
-were created 2026-09-07 from `issues/*.md` via `scripts/create-issues.sh` and
-carry the real per-domain requirements. The repo is **public**, has **no
-`.github/` directory, no CI, and no branch ruleset** — verified 2026-09-07
-against the GitHub API. Phase 0 closes that before any pack work starts, because
-a generator that emits compliance artifacts from an unprotected, unscanned repo
-produces evidence nobody should accept.)
+**Last updated:** 2026-09-07 (**Phase 0 closed; Phase 1a in flight.** #9 landed the
+estate CI set and an active branch ruleset — four required contexts, PR + CODEOWNERS
+review, no force-push, no deletion. #11 adds the ODP catalog and the vanilla overlay,
+keyed to the real NIST Rev 5 OSCAL parameter ids rather than invented ones, which
+surfaced three findings that shaped the schema: Rev 5 ids are `ia-05.01_odp.02` and
+not `ia-5.1_prm_2`; an AWS rule parameter is **not** 1:1 with an ODP (three password
+knobs all express the single ODP "composition and complexity rules"); and baseline
+membership differs — `ac-2.3` is absent from Low entirely. Two items remain open from
+Phase 0 and neither is blocking: SonarCloud is not onboarded, so its context is not yet
+required, and the evidence-bucket emit grant is filed as sparc-iac#701.)
 
 ---
 
@@ -61,6 +63,25 @@ workflow and hard guardrails. Two apply with particular force here:
   produce FedRAMP evidence; a suppressed finding changes what the package
   asserts.
 
+### PR ceremony
+
+**Every PR updates this file.** The plan is the repository's memory of what is
+done and what is next; one updated only when somebody remembers goes stale
+silently, and a stale roadmap is worse than none because it is read as current.
+
+So it is enforced rather than encouraged. The `Implementation plan updated` step
+in `pack-lint.yml` fails any PR that changes files outside `docs/` without also
+changing `docs/dev/Implementation_plan.md`. Docs-only PRs are exempt — they are
+the record.
+
+The waiver requires a reason, in the PR body:
+
+    Plan-Update: not-required — <reason>
+
+Same principle as suppressions above: the act is legitimate, and it is the
+*unexamined* one that is not. `.github/pull_request_template.md` carries the
+checklist.
+
 ---
 
 ## Status snapshot
@@ -71,29 +92,56 @@ workflow and hard guardrails. Two apply with particular force here:
 | Bucket | Current state |
 |---|---|
 | Tracking issues | **9 filed** — #1 epic, #2–#8 domains, **#9 Phase 0** (active) |
-| Generator (`generate.py`) | **Not started** — does not exist |
-| ODP catalog (`odp/catalog.yaml`) | **Not started** — schema settled: SPARC's parameter shape, as a local file |
+| Generator (`generate.py`) | **Not started** — next after #11 (Phase 1b) |
+| ODP catalog (`odp/catalog.yaml`) | **7 ODPs (IAM domain)** — keyed to real Rev 5 OSCAL param ids, validated in CI (#11) |
 | Rule catalogs (`rules/<domain>.yaml`) | **0 / 6** |
 | Guard policies (`guard/`) | **Not started** |
-| Overlays (`overlays/`) | **0** — `overlays/vanilla.yaml` is the first deliverable of Phase 1a |
-| Repo CI | **0 workflows.** No `.github/` directory exists |
-| Branch protection | **None.** No ruleset, no classic protection |
-| Secret-scan fixture canary | **Absent** |
+| Overlays (`overlays/`) | **`overlays/vanilla.yaml`** — pristine reference, SPARC's `parameters[]` / `selections[]` shape |
+| Repo CI | **5 workflows.** secret-scan (+ fixture canary), pack-lint, CodeQL (python), 2 HDF emitters |
+| Branch protection | **Active ruleset** (id 22464078) — 4 required contexts, strict policy, PR + CODEOWNERS review, no deletion, no force-push. Admin bypass retained for the solo-owner case |
+| Secret-scan fixture canary | **Green** — proves the scanner still fires |
 | GitLab pipeline | **Absent** |
 | Deployment `inputs.yml` contract | **Not designed** |
 | Reference pack available to mine | `sparc-iac` `AWS/ECS/modules/aws_config/` — 107 rules, awslabs NIST r5 pack trimmed for a Fargate boundary |
-| Evidence path | `risk-sentinel/aws-config` reusable workflow already fetches Config evaluations → HDF. **No work needed here beyond calling it** |
-| Highest-priority next work | **#9 Phase 0** — scanning + branch protection (in flight), then **Phase 1a** ODP catalog + vanilla overlay |
+| Evidence path | `risk-sentinel/aws-config` reusable workflow already fetches Config evaluations → HDF. Emit grant filed as **sparc-iac#701**; workflows degrade to build artifacts until it lands |
+| Highest-priority next work | **#11 Phase 1a** (in flight), then **Phase 1b** the generator. Open: SonarCloud onboarding to add the 5th required context |
 
 ---
 
-## Phase 0 — Repo trustworthiness ([#9](https://github.com/risk-sentinel/aws-conformance-packs/issues/9) — ACTIVE)
+## Phase 0 — Repo trustworthiness ([#9](https://github.com/risk-sentinel/aws-conformance-packs/issues/9) — COMPLETE)
 
 **Goal:** this repo meets the same bar as the 14 profile repos before it emits
 anything anyone relies on. Nothing in Phase 1+ starts until the ruleset is on.
 
-Approved by the owner 2026-09-07; tracked as #9 on branch
-`feature/9_ci_branch_protection`.
+Approved by the owner 2026-09-07; landed via PR #10.
+
+### Outcome
+
+Five workflows on `main`; ruleset `main` (id 22464078) active with
+`strict_required_status_checks_policy: true` and four required contexts:
+`Verified secrets gate`, `Fixture detection (proves scanner works)`,
+`Pack lint + template validate`, `Analyze (python)`.
+
+**Three things worth carrying forward:**
+
+1. **Admin bypass means "no direct push to main" is not literally true.** The
+   ruleset objects — a push is answered with *"Cannot force-push to this branch"*
+   and *"Changes must be made through a pull request"* — and then the
+   `RepositoryRole` bypass lets an admin through anyway. That is the estate's
+   deliberate solo-owner configuration, not a misconfiguration, but the guardrail
+   is a convention for the owner and an enforced rule for everyone else. Worth
+   knowing before relying on it.
+2. **`Analyze (actions)` would not stick.** It reported once during setup, but the
+   code-scanning API keeps resolving the language list back to `["python"]`. It is
+   deliberately **not** a required context — requiring one that reports
+   inconsistently blocks every PR. Retry later; the loss is workflow-injection
+   scanning, which is small.
+3. **SonarCloud is not onboarded.** `SonarQube HDF emit` fails at *Resolve and
+   verify the SonarQube project key*, which is the workflow behaving correctly:
+   it verifies the key exists before fetching, because an unknown key returns
+   nothing and converts into a valid, EMPTY, clean-looking report. Once the
+   project is registered and `SONAR_TOKEN` set, add `SonarCloud Code Analysis`
+   as the fifth required context.
 
 Copy the pattern from `stig-aws-ecr-baseline`, which is the estate's pilot repo.
 Adapt language: that repo is Ruby/InSpec, this one is Python/YAML/CloudFormation.
@@ -150,7 +198,36 @@ required contexts from the API.
 **Goal:** one governance decision lives in one place, and a bad value fails the
 build instead of deploying.
 
-### 1a — Copy the SPARC ODP schema (blocks everything else)
+### 1a — ODP catalog + vanilla overlay ([#11](https://github.com/risk-sentinel/aws-conformance-packs/issues/11))
+
+**What the OSCAL catalogs actually said.** Derived from the Rev 5 resolved
+baselines rather than assumed, and all three findings changed the schema:
+
+1. **Rev 5 ids are `ia-05.01_odp.02`, not `ia-5.1_prm_2`.** The `_prm_` form
+   survives as an `alt-identifier` prop on each parameter — and it is the form
+   SPARC's ODP import fixture uses. The catalog carries **both**, so a value
+   joins from either direction with no lookup table maintained elsewhere.
+2. **An AWS rule parameter is not 1:1 with an ODP.** `ia-05.01_odp.02` is a
+   single free-text ODP — *"authenticator composition and complexity rules are
+   defined"*. Minimum length, maximum age and reuse prevention are three AWS
+   knobs expressing that one ODP. `ia-05_odp.01` — *"time period for changing or
+   refreshing authenticators **by authenticator type**"* — likewise covers both
+   access-key and Secrets Manager rotation; its own wording anticipates
+   different values per type. **This is why the catalog is keyed by our name and
+   joins to OSCAL.** Keying on OSCAL ids cannot represent it at all.
+3. **Baseline membership differs and is load-bearing.** Low resolves 149
+   controls, Moderate 287, High 370, and `ac-2.3` is absent from Low entirely.
+   An ODP bound to a control outside the target baseline must not render — it
+   would measure something the baseline never asked for and report it as
+   coverage. A value set for an out-of-baseline ODP is a **notice**, not an
+   error: one overlay is meant to serve several baselines.
+
+**Correction to issue #2.** It lists *Static key max age* and *Secret rotation
+period* under `ia-5.1`. Both are semantically `ia-5` (`ia-05_odp.01`,
+authenticator refresh period); `ia-5.1` is specifically password composition.
+Bound to `ia-5` in the catalog.
+
+### 1a reference — the SPARC schema being matched
 
 SPARC's baseline-parameters API is the schema of record. Verified surface:
 
@@ -414,7 +491,7 @@ Work required here is the join, not the pipeline:
 | Repository | Dependency | Direction |
 |---|---|---|
 | **sparc** | Baseline-parameters API is the ODP schema of record (Low / Moderate / High) | sparc → aws-conformance-packs |
-| **sparc-iac** | Reference conformance-pack deployment + recorder/delivery Terraform | sparc-iac → aws-conformance-packs |
+| **sparc-iac** | Reference conformance-pack deployment + recorder/delivery Terraform; evidence emit grant tracked as [sparc-iac#701](https://github.com/risk-sentinel/sparc-iac/issues/701) | sparc-iac → aws-conformance-packs |
 | **aws-config** | Reusable workflow converting Config evaluations to HDF | aws-config → aws-conformance-packs |
 | **dev-sec-ops-baseline** | Reusable secret-scan HDF emit workflow | dev-sec-ops-baseline → aws-conformance-packs |
 | **stig-aws-ecr-baseline** | CI + branch-protection pattern to replicate (estate pilot) | pattern source |
