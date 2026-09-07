@@ -59,5 +59,13 @@ build-iPhoneSimulator/
 .claude/*
 CLAUDE.md
 
+## Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.ruff_cache/
+.pytest_cache/
+
 ## Generated conformance packs and reports
 out/

@@ -1,0 +1,90 @@
+name: Pack lint
+
+# This repository generates AWS Config conformance packs — CloudFormation
+# templates carrying compliance thresholds. A wrong value here does not crash
+# anything; it deploys, evaluates, and reports a clean result against a
+# threshold nobody chose. So the lint is the gate, and its central rule is:
+#
+#   a check that is not running must be VISIBLE, never silently green.
+#
+# tools/lint_packs.py prints a coverage report separating PASS from PENDING, and
+# a PENDING check becomes a hard FAILURE the moment the artifact it was waiting
+# for appears without a validator. That is what stops the pending set from
+# quietly becoming permanent.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # risksentinel/ci-runner does not exist; the estate image is sparc-ci-runner.
+  # Tag-pinned rather than digest-pinned, per docs in container-build-sign
+  # (Image_Pinning_Policy.md): the tags are cosign-signed releases.
+  #
+  # Ships Python 3.12 + PyYAML, which is all this lint needs today. It does NOT
+  # ship cfn-lint — when the generator lands and templates need CloudFormation
+  # validation, add cfn-lint to the image rather than pip-installing it here, so
+  # the tool version is pinned in one place for the whole estate.
+  CI_RUNNER_IMAGE: risksentinel/sparc-ci-runner:v0.6.2
+
+jobs:
+  lint:
+    # NAME IS LOAD-BEARING — this string is a required status check in the
+    # branch ruleset. Renaming the job silently detaches the gate: the ruleset
+    # waits forever for a context that no longer reports, and every PR blocks.
+    name: Pack lint + template validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Docker Hub login (ci-runner image pull)
+        env:
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        run: |
+          set -euo pipefail
+          # Optional. The image is public, so an anonymous pull works; signing in
+          # only raises the shared rate limit. Without this guard an adopter with
+          # no Docker Hub secrets fails here, before anything runs — which would
+          # make the repository un-forkable for exactly the outside consumers it
+          # is being built for.
+          if [ -z "${DOCKERHUB_USERNAME:-}" ] || [ -z "${DOCKERHUB_TOKEN:-}" ]; then
+            echo "::notice::No Docker Hub credentials set; pulling anonymously."
+            exit 0
+          fi
+          echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+
+      - name: Pack lint
+        run: |
+          set -uo pipefail
+          # Capture the exit code rather than letting `bash -e` abort on the
+          # docker call: the report is written to stdout by the script itself,
+          # and aborting before it is echoed would hide the lint's own evidence.
+          out=$(docker run --rm -v "$PWD:/work" -w /work --entrypoint python3 \
+                  "${CI_RUNNER_IMAGE}" tools/lint_packs.py --repo-root /work 2>&1) && rc=0 || rc=$?
+          echo "$out"
+          if [ "$rc" -ne 0 ]; then
+            echo "::error::Pack lint failed — see the coverage report above."
+            exit 1
+          fi
+          # A lint that checked nothing at all must not report success. The
+          # script always runs at least the YAML and shell checks on a populated
+          # repository, so zero passes means the run itself was broken.
+          echo "$out" | grep -qE '^[1-9][0-9]* passed' \
+            || { echo "::error::Pack lint reported zero passing checks — the lint did not run."; exit 1; }
+
+      - name: Publish coverage to the job summary
+        if: always()
+        run: |
+          set -uo pipefail
+          {
+            echo '### Pack lint coverage'
+            echo
+            echo 'PENDING entries are checks this repository cannot run yet.'
+            echo 'Each becomes a hard failure when its artifact appears without a validator.'
+          } >> "$GITHUB_STEP_SUMMARY"
