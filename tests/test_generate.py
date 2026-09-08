@@ -1267,3 +1267,46 @@ def test_empty_cdef_dir_refuses_rather_than_excluding_everything(tmp_path):
     with pytest.raises(bm.BoundaryError, match="would exclude every rule"):
         bm.resolve({"boundary": {"cdef_dir": str(d)}},
                    set(aws_services.load().services), Path("/"))
+
+
+# --- AWS service limits, verified 2026-09-08 --------------------------------
+
+def test_generator_caps_match_the_documented_service_limits():
+    """Verified against the AWS Config Service Limits page and the
+    PutConformancePack / PutOrganizationConformancePack API references on
+    2026-09-08. All six were already correct; this pins them so a future edit
+    cannot quietly loosen one."""
+    assert generate.MAX_RULES_PER_PACK == 130
+    assert generate.MAX_PARAMS_PER_PACK == 60
+    assert generate.MAX_INLINE_TEMPLATE_BYTES == 51_200
+    assert generate.MAX_S3_TEMPLATE_BYTES == 300 * 1024
+
+
+def test_org_mode_requires_the_awsconfigconforms_bucket_prefix():
+    """Organization-only requirement. The single-account API has no such rule,
+    so this fails only when you switch modes."""
+    v = _load("validate_inputs")
+    c = copy.deepcopy(GOOD_INPUTS)
+    c.update(mode="organization", accounts=["ou-abcd-12345678"])
+    errs = v.validate(c)
+    assert any("awsconfigconforms" in e for e in errs)
+    c["delivery"]["evidence_bucket"] = "awsconfigconforms-evidence"
+    assert not any("awsconfigconforms" in e for e in v.validate(c))
+
+
+def test_malformed_excluded_account_refused():
+    """AWS rejects the whole call, so the pack deploys to NOBODY rather than to
+    everyone-but-that-account."""
+    v = _load("validate_inputs")
+    c = copy.deepcopy(GOOD_INPUTS)
+    c.update(mode="organization", accounts=["ou-abcd-12345678"],
+             excluded_accounts=["12345"])
+    c["delivery"]["evidence_bucket"] = "awsconfigconforms-e"
+    assert any("12-digit account id" in e for e in v.validate(c))
+
+
+def test_excluded_accounts_in_single_account_mode_refused():
+    v = _load("validate_inputs")
+    c = copy.deepcopy(GOOD_INPUTS)
+    c["excluded_accounts"] = ["123456789012"]
+    assert any("ignored in single-account mode" in e for e in v.validate(c))
