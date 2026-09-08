@@ -48,6 +48,7 @@ map:
   AWS::DMS::ReplicationInstance: Database Migration Service
   AWS::DynamoDB::Table: DynamoDB
   AWS::EC2::Instance: EC2
+  AWS::EC2::NetworkAcl: EC2
   AWS::EC2::RouteTable: EC2
   AWS::EC2::SecurityGroup: EC2
   AWS::EC2::Subnet: EC2
