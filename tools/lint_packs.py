@@ -619,6 +619,10 @@ def check_resource_type_map(root: Path, rep: Report) -> None:
             doc = yaml.safe_load(rf.read_text()) or {}
         except yaml.YAMLError:
             continue
+        # Pack-level `required_resource_types` too, not only rule-level. The
+        # preflight asserts the pack-level list, so an unmapped entry there
+        # crashed it against a live account while this check reported clean.
+        used |= set(doc.get("required_resource_types") or [])
         for rule in (doc.get("rules") or {}).values():
             used |= set(rule.get("resource_types") or [])
 
