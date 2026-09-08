@@ -8,18 +8,19 @@ per-organization ODP overlay. It is a *generator and a deployment pattern*, not 
 profile: there are no InSpec controls here. Evidence leaves this repo as Config
 rule evaluations, which `risk-sentinel/aws-config` converts to HDF.
 
-**Last updated:** 2026-09-08 (**Phase 2 complete — all six Config domains built.**
-IAM 25, NET 34, CRYPTO 31, LOG 25, VCM 17, RPL 25 = **157 rules**, 133 of them (84%)
-verified against AWS's own published NIST r5 pack, 66 tests, zero pending lint checks.
-Every domain is under the 130-rule cap; all six together are 157 of the 1000-per-Region
-budget. RPL added a `duration` ODP type because
-`backup-plan-min-frequency-and-min-retention-check` takes value and unit as separate
-parameters and a mismatched pair silently changes the check by a factor of 24 — modelling
-them as one ODP and deriving both facets makes disagreement structurally impossible rather
-than something a validator has to catch. The `si-13` correction filed on #7 is enforced by
-a test: it resolves in no Rev 5 baseline, so no catalog may claim it. **What remains is
-not more rules.** #8 GOV needs design decisions; Phase 4 needs the `inputs.yml` contract
-and the out-of-band recorder check; and nothing has yet evaluated a real resource.)
+**Last updated:** 2026-09-08 (**Crosswalk gap closed — controls touched 36 -> 70,
+Moderate coverage 12% -> 24%.** #26 dispositioned all 94 technical controls FedRAMP
+relates to KSIs our rules already serve: **33 claim, 36 no-signal, 24 gov**, each with a
+stated reason in `docs/dev/crosswalk-dispositions.yaml`. The question asked of each was
+not "is this related" — FedRAMP's mapping already says yes, and unioning it in would have
+tripled reported coverage while making the traceability report worthless. It was **does a
+named rule evaluate a resource attribute bearing on the control's STATEMENT**. Also adds
+`item_pattern` constraints, because AWS takes `amisByTagKeyAndValue` as one
+comma-separated string and **silently ignores a malformed entry** — the allow-list is
+smaller than it reads and more AMIs pass than intended. And `approved_ami_ids` is now
+recorded as **the first ODP that cannot be Region-portable**: an AMI id is scoped to one
+Region, so the same overlay deployed elsewhere allow-lists nothing and every instance
+fails for the wrong reason. Next: the awslabs multi-pack verification index, then Phase 4.)
 
 ---
 
@@ -109,7 +110,7 @@ checklist.
 |---|---|
 | Tracking issues | **9 filed** — #1 epic, #2–#8 domains, **#9 Phase 0** (active) |
 | Generator (`generate.py`) | **Built** (#13) — resolves, renders, validates, emits 5 artifacts. 22 tests |
-| ODP catalog (`odp/catalog.yaml`) | **28 ODPs**, two evidence-only — every `oscal_param_id` now checked for existence against the vendored NIST index |
+| ODP catalog (`odp/catalog.yaml`) | **29 ODPs**, two evidence-only, one not Region-portable — every `oscal_param_id` now checked for existence against the vendored NIST index |
 | Rule catalogs (`rules/<domain>.yaml`) | **2 / 6** — `iam.yaml` (7 rules, partial; #2 open) and `net.yaml` (18 rules, #3). 25 rules total |
 | Guard policies (`guard/`) | **2** — KMS rotation period and the ELB TLS floor. Values bake at generation time |
 | Overlays (`overlays/`) | **3** — `vanilla.yaml` (moderate), `vanilla-low.yaml`, `vanilla-high.yaml`. All three generate; Low records 2 exclusions |

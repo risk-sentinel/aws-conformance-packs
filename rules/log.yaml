@@ -51,7 +51,7 @@ rules:
       CloudTrail is enabled in the account.
     resource_types: [AWS::::Account]
     controls:
-      nist_800_53_r5: [au-2, au-12]
+      nist_800_53_r5: [au-2, au-12, ac-17.1, si-4.4, ac-2.4, ac-6.9, au-3]
       ksi: [KSI-MLA-LET, KSI-CMT-LMC]
     coverage: full
     coverage_note: >-
@@ -64,7 +64,7 @@ rules:
       A multi-Region CloudTrail trail is enabled.
     resource_types: [AWS::::Account]
     controls:
-      nist_800_53_r5: [au-2, au-12]
+      nist_800_53_r5: [au-2, au-12, ac-2.4, ac-6.9, au-3]
       ksi: [KSI-MLA-LET]
     coverage: full
     coverage_note: >-
@@ -76,7 +76,7 @@ rules:
       CloudTrail trails deliver to CloudWatch Logs.
     resource_types: [AWS::CloudTrail::Trail]
     controls:
-      nist_800_53_r5: [au-6, au-12]
+      nist_800_53_r5: [au-6, au-12, ac-17.1, ac-6.9, au-6.3, au-7, au-7.1]
       ksi: [KSI-MLA-RVL, KSI-MLA-LET]
     coverage: supporting
     coverage_note: >-
@@ -112,7 +112,7 @@ rules:
       CloudTrail captures S3 object-level data events.
     resource_types: [AWS::CloudTrail::Trail]
     controls:
-      nist_800_53_r5: [au-2, au-12]
+      nist_800_53_r5: [au-2, au-12, ac-2.4, au-3.1]
       ksi: [KSI-MLA-LET]
     coverage: partial
     coverage_note: >-
@@ -125,7 +125,7 @@ rules:
       S3 buckets have server access logging enabled.
     resource_types: [AWS::S3::Bucket]
     controls:
-      nist_800_53_r5: [au-2, au-12]
+      nist_800_53_r5: [au-2, au-12, au-3.1]
       ksi: [KSI-MLA-LET]
     coverage: partial
     coverage_note: >-
@@ -138,7 +138,7 @@ rules:
       Load balancers have access logging enabled.
     resource_types: [AWS::ElasticLoadBalancingV2::LoadBalancer]
     controls:
-      nist_800_53_r5: [au-2, au-12]
+      nist_800_53_r5: [au-2, au-12, ac-17.1, si-4.4]
       ksi: [KSI-MLA-LET]
     coverage: full
   vpc-flow-logs-enabled:
@@ -148,7 +148,7 @@ rules:
       VPC flow logs are enabled.
     resource_types: [AWS::EC2::VPC]
     controls:
-      nist_800_53_r5: [au-2, au-12]
+      nist_800_53_r5: [au-2, au-12, ac-17.1, si-4.4]
       ksi: [KSI-MLA-LET]
     coverage: partial
     coverage_note: >-
@@ -250,7 +250,7 @@ rules:
       Security Hub is enabled.
     resource_types: [AWS::::Account]
     controls:
-      nist_800_53_r5: [si-4, ca-7]
+      nist_800_53_r5: [si-4, ca-7, au-6.1, au-6.3, si-4.2]
       ksi: [KSI-MLA-EVC, KSI-SVC-EIS]
     coverage: partial
     coverage_note: >-
@@ -264,7 +264,7 @@ rules:
       GuardDuty is enabled and centrally managed.
     resource_types: [AWS::::Account]
     controls:
-      nist_800_53_r5: [si-4, ca-7]
+      nist_800_53_r5: [si-4, ca-7, au-6.1, si-3, si-4.2, si-4.4]
       ksi: [KSI-MLA-EVC, KSI-SVC-EIS]
     coverage: partial
     coverage_note: >-
@@ -276,7 +276,7 @@ rules:
       CloudWatch alarms have actions configured.
     resource_types: [AWS::CloudWatch::Alarm]
     controls:
-      nist_800_53_r5: [si-4, au-6]
+      nist_800_53_r5: [si-4, au-6, au-5, si-4.5]
       ksi: [KSI-MLA-RVL, KSI-SVC-EIS]
     coverage: partial
     coverage_note: >-
@@ -293,7 +293,7 @@ rules:
       Redshift clusters have audit logging and encryption enabled.
     resource_types: [AWS::Redshift::Cluster]
     controls:
-      nist_800_53_r5: [au-2, au-9]
+      nist_800_53_r5: [au-2, au-9, au-3]
       ksi: [KSI-MLA-LET, KSI-MLA-OSM]
     coverage: full
     coverage_note: >-
@@ -313,7 +313,7 @@ rules:
       A CloudTrail trail meeting the security-trail criteria exists.
     resource_types: [AWS::::Account]
     controls:
-      nist_800_53_r5: [au-2, au-9]
+      nist_800_53_r5: [au-2, au-9, au-3]
       ksi: [KSI-MLA-LET, KSI-MLA-OSM]
     coverage: full
     coverage_note: >-
@@ -342,7 +342,7 @@ rules:
       CloudWatch log groups retain records for at least the organization-defined period.
     resource_types: [AWS::Logs::LogGroup]
     controls:
-      nist_800_53_r5: [au-11, au-4]
+      nist_800_53_r5: [au-11, au-4, si-12]
       ksi: [KSI-MLA-OSM]
     coverage: partial
     coverage_note: >-
@@ -363,7 +363,7 @@ rules:
       GuardDuty findings are triaged within the organization-defined window by severity.
     resource_types: [AWS::::Account]
     controls:
-      nist_800_53_r5: [si-4, au-6]
+      nist_800_53_r5: [si-4, au-6, si-4.5]
       ksi: [KSI-MLA-RVL, KSI-SVC-EIS]
     coverage: partial
     coverage_note: >-

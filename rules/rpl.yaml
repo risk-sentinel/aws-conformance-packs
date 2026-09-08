@@ -62,7 +62,7 @@ rules:
       Backup plans meet the organization-defined minimum frequency and retention.
     resource_types: [AWS::Backup::BackupPlan]
     controls:
-      nist_800_53_r5: [cp-9]
+      nist_800_53_r5: [cp-9, cp-9.8]
       ksi: [KSI-RPL-ABO]
     coverage: partial
     coverage_note: >-
@@ -85,7 +85,7 @@ rules:
       Recovery points meet the organization-defined minimum retention.
     resource_types: [AWS::Backup::RecoveryPoint]
     controls:
-      nist_800_53_r5: [cp-9]
+      nist_800_53_r5: [cp-9, cp-10.2]
       ksi: [KSI-RPL-ABO]
     coverage: full
     parameters:
@@ -100,7 +100,7 @@ rules:
       Backup recovery points are encrypted.
     resource_types: [AWS::Backup::RecoveryPoint]
     controls:
-      nist_800_53_r5: [cp-9]
+      nist_800_53_r5: [cp-9, si-12, cp-9.8]
       ksi: [KSI-RPL-ABO]
     coverage: full
     coverage_note: >-
@@ -117,7 +117,7 @@ rules:
       Backup vault policies prevent manual deletion of recovery points.
     resource_types: [AWS::Backup::BackupVault]
     controls:
-      nist_800_53_r5: [cp-9]
+      nist_800_53_r5: [cp-9, cp-10.2]
       ksi: [KSI-RPL-ABO]
     coverage: full
     coverage_note: >-
@@ -130,7 +130,7 @@ rules:
       EBS volumes are in a backup plan.
     resource_types: [AWS::EC2::Volume]
     controls:
-      nist_800_53_r5: [cp-9]
+      nist_800_53_r5: [cp-9, si-12]
       ksi: [KSI-RPL-ABO]
     coverage: full
     coverage_note: >-
@@ -185,7 +185,7 @@ rules:
       DynamoDB tables have point-in-time recovery enabled.
     resource_types: [AWS::DynamoDB::Table]
     controls:
-      nist_800_53_r5: [cp-9]
+      nist_800_53_r5: [cp-9, cp-10.2]
       ksi: [KSI-RPL-ABO]
     coverage: full
     coverage_note: >-
@@ -232,7 +232,7 @@ rules:
       S3 buckets have cross-region replication enabled.
     resource_types: [AWS::S3::Bucket]
     controls:
-      nist_800_53_r5: [cp-9, cp-10]
+      nist_800_53_r5: [cp-9, cp-10, cp-6]
       ksi: [KSI-RPL-ABO, KSI-RPL-RRO]
     coverage: supporting
     coverage_note: >-
@@ -245,7 +245,7 @@ rules:
       S3 buckets have a lifecycle policy for object versions.
     resource_types: [AWS::S3::Bucket]
     controls:
-      nist_800_53_r5: [cp-9]
+      nist_800_53_r5: [cp-9, si-12]
       ksi: [KSI-RPL-ABO]
     coverage: supporting
     coverage_note: >-

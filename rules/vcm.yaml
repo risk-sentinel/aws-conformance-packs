@@ -72,7 +72,7 @@ rules:
       Managed instances report compliant against their SSM patch baseline.
     resource_types: [AWS::SSM::PatchCompliance]
     controls:
-      nist_800_53_r5: [si-2, cm-6]
+      nist_800_53_r5: [si-2, cm-6, si-2.2]
       ksi: [KSI-CMT-VTD, KSI-SVC-ACM]
     coverage: partial
     coverage_note: >-
@@ -87,7 +87,7 @@ rules:
       Managed instances report compliant against their SSM associations.
     resource_types: [AWS::SSM::AssociationCompliance]
     controls:
-      nist_800_53_r5: [cm-6, cm-2]
+      nist_800_53_r5: [cm-6, cm-2, cm-2.2]
       ksi: [KSI-SVC-ACM, KSI-MLA-EVC]
     coverage: partial
     coverage_note: >-
@@ -100,7 +100,7 @@ rules:
       EC2 instances require IMDSv2 for instance metadata access.
     resource_types: [AWS::EC2::Instance]
     controls:
-      nist_800_53_r5: [cm-6, cm-7]
+      nist_800_53_r5: [cm-6, cm-7, cm-7.2, sc-39]
       ksi: [KSI-SVC-ACM, KSI-IAM-JIT]
     coverage: full
     coverage_note: >-
@@ -113,7 +113,7 @@ rules:
       EC2 instances are not stopped for longer than the organization-defined period.
     resource_types: [AWS::EC2::Instance]
     controls:
-      nist_800_53_r5: [cm-2]
+      nist_800_53_r5: [cm-2, cm-7.5]
       ksi: [KSI-SVC-ACM]
     coverage: supporting
     coverage_note: >-
@@ -157,7 +157,7 @@ rules:
       ECS task definitions give containers read-only root filesystems.
     resource_types: [AWS::ECS::TaskDefinition]
     controls:
-      nist_800_53_r5: [cm-6, cm-7]
+      nist_800_53_r5: [cm-6, cm-7, sc-39, cm-7.2]
       ksi: [KSI-SVC-ACM, KSI-CMT-RMV]
     coverage: full
     coverage_note: >-
@@ -170,7 +170,7 @@ rules:
       ECS host-mode task definitions do not run privileged or as root.
     resource_types: [AWS::ECS::TaskDefinition]
     controls:
-      nist_800_53_r5: [cm-6, cm-7]
+      nist_800_53_r5: [cm-6, cm-7, sc-39]
       ksi: [KSI-SVC-ACM, KSI-IAM-JIT]
     coverage: full
     coverage_note: >-
@@ -210,7 +210,7 @@ rules:
       EC2 instances run an AMI carrying an approved tag.
     resource_types: [AWS::EC2::Instance]
     controls:
-      nist_800_53_r5: [cm-2]
+      nist_800_53_r5: [cm-2, cm-7.5]
       ksi: [KSI-CNA-IBP, KSI-SVC-ACM]
     coverage: partial
     coverage_note: >-
@@ -293,7 +293,7 @@ rules:
       Lambda functions use an approved runtime.
     resource_types: [AWS::Lambda::Function]
     controls:
-      nist_800_53_r5: [cm-7]
+      nist_800_53_r5: [cm-7, cm-7.2, cm-7.5]
       ksi: [KSI-IAM-JIT, KSI-CMT-RMV]
     coverage: partial
     coverage_note: >-

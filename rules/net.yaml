@@ -73,7 +73,7 @@ rules:
       Security groups do not allow unrestricted ingress on high-risk TCP ports.
     resource_types: [AWS::EC2::SecurityGroup]
     controls:
-      nist_800_53_r5: [sc-7.5, sc-7]
+      nist_800_53_r5: [sc-7.5, sc-7, sc-7.4]
       ksi: [KSI-CNA-RNT, KSI-CNA-ULN]
     coverage: partial
     ipv6_evaluated: false
@@ -130,7 +130,7 @@ rules:
       Internet gateways are attached only to VPCs authorized to have one.
     resource_types: [AWS::EC2::VPC]
     controls:
-      nist_800_53_r5: [ac-4, sc-7]
+      nist_800_53_r5: [ac-4, sc-7, ac-17.1, si-4.4, ac-17.3, sc-7.3, sc-7.4]
       ksi: [KSI-CNA-ULN, KSI-IAM-ELP]
     coverage: partial
     ipv6_evaluated: true
@@ -149,7 +149,7 @@ rules:
       Subnets do not automatically assign public IPv4 addresses.
     resource_types: [AWS::EC2::Subnet]
     controls:
-      nist_800_53_r5: [sc-7, sc-7.5]
+      nist_800_53_r5: [sc-7, sc-7.5, sc-7.3]
       ksi: [KSI-CNA-MAT, KSI-CNA-ULN]
     coverage: partial
     ipv6_evaluated: false
@@ -165,7 +165,7 @@ rules:
       VPC flow logs are enabled.
     resource_types: [AWS::EC2::VPC]
     controls:
-      nist_800_53_r5: [ac-4, sc-7]
+      nist_800_53_r5: [ac-4, sc-7, ac-17.3, sc-7.3, sc-7.4, ac-17.1, si-4.4]
       ksi: [KSI-CNA-ULN]
     coverage: supporting
     ipv6_evaluated: true
@@ -182,7 +182,7 @@ rules:
       Application and network load balancers use ACM-managed certificates.
     resource_types: [AWS::ElasticLoadBalancingV2::LoadBalancer]
     controls:
-      nist_800_53_r5: [sc-7]
+      nist_800_53_r5: [sc-7, ia-5.2, sc-17]
       ksi: [KSI-CNA-ULN]
     coverage: supporting
     ipv6_evaluated: true
@@ -198,7 +198,7 @@ rules:
       Application load balancer HTTP listeners redirect to HTTPS.
     resource_types: [AWS::ElasticLoadBalancingV2::LoadBalancer]
     controls:
-      nist_800_53_r5: [ac-17, sc-7]
+      nist_800_53_r5: [ac-17, sc-7, sc-23]
       ksi: [KSI-IAM-ELP]
     coverage: partial
     ipv6_evaluated: true
@@ -229,7 +229,7 @@ rules:
       EC2 instances do not have a public IP address.
     resource_types: [AWS::EC2::Instance]
     controls:
-      nist_800_53_r5: [sc-7, sc-7.5]
+      nist_800_53_r5: [sc-7, sc-7.5, sc-7.3]
       ksi: [KSI-CNA-ULN, KSI-CNA-MAT]
     coverage: full
     ipv6_evaluated: false
@@ -244,7 +244,7 @@ rules:
       RDS instances are not publicly accessible.
     resource_types: [AWS::RDS::DBInstance]
     controls:
-      nist_800_53_r5: [sc-7, ac-4]
+      nist_800_53_r5: [sc-7, ac-4, ac-17.3]
       ksi: [KSI-CNA-ULN, KSI-IAM-ELP]
     coverage: full
     ipv6_evaluated: true
@@ -256,7 +256,7 @@ rules:
       Redshift clusters are not publicly accessible.
     resource_types: [AWS::Redshift::Cluster]
     controls:
-      nist_800_53_r5: [sc-7, ac-4]
+      nist_800_53_r5: [sc-7, ac-4, ac-17.3]
       ksi: [KSI-CNA-ULN, KSI-IAM-ELP]
     coverage: full
     ipv6_evaluated: true
@@ -380,7 +380,7 @@ rules:
       Route tables do not carry an unrestricted (0.0.0.0/0) route to an internet gateway.
     resource_types: [AWS::EC2::RouteTable]
     controls:
-      nist_800_53_r5: [sc-7, ac-4]
+      nist_800_53_r5: [sc-7, ac-4, ac-17.3]
       ksi: [KSI-CNA-ULN, KSI-IAM-ELP]
     coverage: partial
     ipv6_evaluated: false
@@ -553,7 +553,7 @@ rules:
       Site-to-site VPN connections have both tunnels up.
     resource_types: [AWS::EC2::VPNConnection]
     controls:
-      nist_800_53_r5: [sc-7]
+      nist_800_53_r5: [sc-7, sc-17]
       ksi: [KSI-CNA-ULN]
     coverage: supporting
     ipv6_evaluated: true
@@ -569,7 +569,7 @@ rules:
       Classic load balancers use ACM-managed certificates.
     resource_types: [AWS::ElasticLoadBalancing::LoadBalancer]
     controls:
-      nist_800_53_r5: [sc-7]
+      nist_800_53_r5: [sc-7, sc-17]
       ksi: [KSI-CNA-ULN]
     coverage: supporting
     ipv6_evaluated: true

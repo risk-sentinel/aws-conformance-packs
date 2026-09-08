@@ -101,7 +101,7 @@ rules:
       S3 buckets are encrypted with a KMS customer-managed key.
     resource_types: [AWS::S3::Bucket]
     controls:
-      nist_800_53_r5: [sc-28, sc-13]
+      nist_800_53_r5: [sc-28, sc-13, ia-5.6]
       ksi: [KSI-SVC-SIN]
     coverage: full
     coverage_note: >-
@@ -117,7 +117,7 @@ rules:
       S3 bucket policies deny requests made over plain HTTP.
     resource_types: [AWS::S3::Bucket]
     controls:
-      nist_800_53_r5: [sc-8, sc-8.1]
+      nist_800_53_r5: [sc-8, sc-8.1, ac-17.2, sc-23]
       ksi: [KSI-SVC-SIN, KSI-CNA-ULN]
     coverage: full
   rds-storage-encrypted:
@@ -157,7 +157,7 @@ rules:
       DynamoDB tables are encrypted with a KMS key.
     resource_types: [AWS::DynamoDB::Table]
     controls:
-      nist_800_53_r5: [sc-28, sc-13]
+      nist_800_53_r5: [sc-28, sc-13, ia-5.6]
       ksi: [KSI-SVC-SIN]
     coverage: full
   sns-encrypted-kms:
@@ -177,7 +177,7 @@ rules:
       Automatic key rotation is enabled on customer-managed KMS keys.
     resource_types: [AWS::KMS::Key]
     controls:
-      nist_800_53_r5: [sc-12]
+      nist_800_53_r5: [sc-12, ia-5.2, sc-17]
       ksi: [KSI-SVC-ASM]
     coverage: partial
     coverage_note: >-
@@ -191,7 +191,7 @@ rules:
       Customer-managed KMS keys are not scheduled for deletion.
     resource_types: [AWS::KMS::Key]
     controls:
-      nist_800_53_r5: [sc-12]
+      nist_800_53_r5: [sc-12, ia-5.2, sc-17]
       ksi: [KSI-SVC-ASM]
     coverage: full
     coverage_note: >-
@@ -204,7 +204,7 @@ rules:
       ACM certificates are not within the expiry warning window.
     resource_types: [AWS::ACM::Certificate]
     controls:
-      nist_800_53_r5: [sc-12]
+      nist_800_53_r5: [sc-12, ia-5.2, sc-17]
       ksi: [KSI-SVC-ASM]
     coverage: full
     parameters:
@@ -216,7 +216,7 @@ rules:
       Classic load balancer listeners use HTTPS or TLS.
     resource_types: [AWS::ElasticLoadBalancing::LoadBalancer]
     controls:
-      nist_800_53_r5: [sc-8, sc-8.1]
+      nist_800_53_r5: [sc-8, sc-8.1, ac-17.2]
       ksi: [KSI-SVC-SIN, KSI-CNA-ULN]
     coverage: partial
     coverage_note: >-
@@ -228,7 +228,7 @@ rules:
       Redshift clusters require TLS for client connections.
     resource_types: [AWS::Redshift::Cluster]
     controls:
-      nist_800_53_r5: [sc-8, sc-8.1]
+      nist_800_53_r5: [sc-8, sc-8.1, ac-17.2]
       ksi: [KSI-SVC-SIN]
     coverage: full
   elasticsearch-node-to-node-encryption-check:
@@ -238,7 +238,7 @@ rules:
       Elasticsearch domains encrypt node-to-node traffic.
     resource_types: [AWS::Elasticsearch::Domain]
     controls:
-      nist_800_53_r5: [sc-8, sc-8.1]
+      nist_800_53_r5: [sc-8, sc-8.1, ac-17.2]
       ksi: [KSI-SVC-SIN]
     coverage: full
   api-gw-cache-enabled-and-encrypted:
@@ -312,7 +312,7 @@ rules:
       OpenSearch domains require HTTPS for client connections.
     resource_types: [AWS::OpenSearch::Domain]
     controls:
-      nist_800_53_r5: [sc-8, sc-8.1]
+      nist_800_53_r5: [sc-8, sc-8.1, ac-17.2]
       ksi: [KSI-SVC-SIN]
     coverage: full
   opensearch-node-to-node-encryption-check:
@@ -362,7 +362,7 @@ rules:
       Secrets Manager secrets are encrypted with a customer-managed KMS key.
     resource_types: [AWS::SecretsManager::Secret]
     controls:
-      nist_800_53_r5: [sc-28, sc-13]
+      nist_800_53_r5: [sc-28, sc-13, ia-5.6]
       ksi: [KSI-SVC-SIN]
     coverage: full
     coverage_note: >-
@@ -410,7 +410,7 @@ rules:
       Load balancer HTTPS and TLS listeners use an approved SSL security policy.
     resource_types: [AWS::ElasticLoadBalancingV2::Listener]
     controls:
-      nist_800_53_r5: [sc-8.1, sc-8]
+      nist_800_53_r5: [sc-8.1, sc-8, sc-23]
       ksi: [KSI-SVC-SIN]
     coverage: partial
     coverage_note: >-

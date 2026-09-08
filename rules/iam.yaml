@@ -73,7 +73,7 @@ rules:
       period.
     resource_types: [AWS::IAM::User]
     controls:
-      nist_800_53_r5: [ia-5]
+      nist_800_53_r5: [ia-5, ia-5.6]
       ksi: [KSI-IAM-APM]
     coverage: full
     periodic: true
@@ -91,7 +91,7 @@ rules:
       are disabled.
     resource_types: [AWS::IAM::User]
     controls:
-      nist_800_53_r5: [ac-2.3]
+      nist_800_53_r5: [ac-2.3, ia-5.6]
       ksi: [KSI-IAM-AAM]
     coverage: full
     periodic: true
@@ -113,7 +113,7 @@ rules:
       Secrets Manager secrets are rotated within the organization-defined period.
     resource_types: [AWS::SecretsManager::Secret]
     controls:
-      nist_800_53_r5: [ia-5]
+      nist_800_53_r5: [ia-5, ia-5.6]
       ksi: [KSI-IAM-APM]
     coverage: full
     parameters:
@@ -130,7 +130,7 @@ rules:
       are identified for review.
     resource_types: [AWS::SecretsManager::Secret]
     controls:
-      nist_800_53_r5: [ac-2.3]
+      nist_800_53_r5: [ac-2.3, ia-5.6]
       ksi: [KSI-IAM-AAM]
     coverage: supporting
     coverage_note: >-
@@ -147,7 +147,7 @@ rules:
       IAM users have multi-factor authentication enabled.
     resource_types: [AWS::IAM::User]
     controls:
-      nist_800_53_r5: [ia-2.1, ia-2.2]
+      nist_800_53_r5: [ia-2.1, ia-2.2, ia-2]
       ksi: [KSI-IAM-APM]
     coverage: partial
     coverage_note: >-
@@ -179,7 +179,7 @@ rules:
       The account is a member of an AWS Organization.
     resource_types: [AWS::::Account]
     controls:
-      nist_800_53_r5: [ac-2, ac-3]
+      nist_800_53_r5: [ac-2, ac-3, ac-2.1]
       ksi: [KSI-IAM-JIT, KSI-IAM-ELP]
     coverage: supporting
     coverage_note: >-
@@ -223,7 +223,7 @@ rules:
       Customer-managed IAM policies do not grant the blocked KMS actions.
     resource_types: [AWS::IAM::Policy]
     controls:
-      nist_800_53_r5: [ac-6, ac-6.1]
+      nist_800_53_r5: [ac-6, ac-6.1, ac-6.5]
       ksi: [KSI-IAM-ELP]
     coverage: partial
     coverage_note: >-
@@ -240,7 +240,7 @@ rules:
       Inline IAM policies do not grant the blocked KMS actions.
     resource_types: [AWS::IAM::User]
     controls:
-      nist_800_53_r5: [ac-6, ac-6.1]
+      nist_800_53_r5: [ac-6, ac-6.1, ac-6.5]
       ksi: [KSI-IAM-ELP]
     coverage: partial
     coverage_note: >-
@@ -267,7 +267,7 @@ rules:
       IAM policies do not grant full administrative privileges.
     resource_types: [AWS::IAM::Policy]
     controls:
-      nist_800_53_r5: [ac-6, ac-6.1]
+      nist_800_53_r5: [ac-6, ac-6.1, ac-6.5]
       ksi: [KSI-IAM-ELP]
     coverage: partial
     coverage_note: >-
@@ -297,7 +297,7 @@ rules:
       The account root user has no active access keys.
     resource_types: [AWS::::Account]
     controls:
-      nist_800_53_r5: [ac-6, ia-5]
+      nist_800_53_r5: [ac-6, ia-5, ac-6.5]
       ksi: [KSI-IAM-ELP, KSI-IAM-APM]
     coverage: full
     coverage_note: >-
@@ -325,7 +325,7 @@ rules:
       IAM users with console passwords have MFA enabled.
     resource_types: [AWS::IAM::User]
     controls:
-      nist_800_53_r5: [ia-2.1, ia-2.2]
+      nist_800_53_r5: [ia-2.1, ia-2.2, ia-2]
       ksi: [KSI-IAM-APM]
     coverage: partial
     coverage_note: >-

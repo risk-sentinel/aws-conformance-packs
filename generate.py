@@ -109,6 +109,7 @@ def _violates(value, odp: dict) -> str | None:
                     f"limit: past it the extra entries are never rendered, so they go "
                     f"unchecked while the catalog claims otherwise")
         it = odp.get("item_type")
+        ip = con.get("item_pattern")
         for v in value:
             if it == "integer":
                 if isinstance(v, bool) or not isinstance(v, int):
@@ -117,8 +118,13 @@ def _violates(value, odp: dict) -> str | None:
                     return f"item {v} is below item_min {lo}"
                 if (hi := con.get("item_max")) is not None and v > hi:
                     return f"item {v} is above item_max {hi}"
-            elif it == "string" and not isinstance(v, str):
-                return f"item {v!r} is not a string"
+            elif it == "string":
+                if not isinstance(v, str):
+                    return f"item {v!r} is not a string"
+                if ip and not re.match(ip, v):
+                    return (f"item {v!r} does not match the required shape {ip}. "
+                            f"AWS rejects or silently ignores a malformed entry, so a "
+                            f"typo here means the allow-list is smaller than it reads")
     return None
 
 
