@@ -698,3 +698,69 @@ def test_vcm_carries_the_absent_not_failing_warning(tmp_path):
     t = yaml.safe_load((tmp_path / "out/800-53r5-VCM.yaml").read_text())
     d = t["Resources"]["Ec2InstanceManagedBySystemsManager"]["Properties"]["Description"]
     assert "ABSENT" in d           # the gap-making rule says so on the rule itself
+
+
+# --- RPL: the duration pair, and plan-vs-coverage ---------------------------
+
+RPL = yaml.safe_load((ROOT / "rules/rpl.yaml").read_text())
+
+
+def test_duration_odp_drives_both_facets_from_one_source():
+    """Issue #7: requiredFrequencyValue and requiredFrequencyUnit disagreeing
+    silently changes the meaning of the check by a factor of 24. Modelling them
+    as one duration makes disagreement structurally impossible."""
+    t, _, _ = generate.render_pack(cat(), copy.deepcopy(RPL),
+                                   generate.resolve(cat(), ov(), None), "moderate")
+    p = t["Parameters"]
+    base = "BackupPlanMinFrequencyAndMinRetentionCheckParamRequiredFrequency"
+    assert p[base + "Value"]["Default"] == "24"
+    assert p[base + "Unit"]["Default"] == "hours"
+
+
+def test_duration_odp_rejects_a_bad_unit():
+    o = ov()
+    for e in o["parameters"]:
+        if e["param_id"] == "backup_minimum_frequency":
+            e["value"] = {"value": 24, "unit": "fortnights"}
+    with pytest.raises(GenerationError, match="is not one of"):
+        generate.resolve(cat(), o, None)
+
+
+def test_duration_odp_rejects_a_scalar():
+    o = ov()
+    for e in o["parameters"]:
+        if e["param_id"] == "backup_minimum_frequency":
+            e["value"] = 24
+    with pytest.raises(GenerationError, match="expected a mapping"):
+        generate.resolve(cat(), o, None)
+
+
+def test_rpl_carries_both_plan_and_coverage_rules():
+    """A perfectly compliant plan protecting ZERO resources passes the plan rule.
+    Without the *-in-backup-plan rules the pack certifies an empty promise."""
+    names = set(RPL["rules"])
+    assert "backup-plan-min-frequency-and-min-retention-check" in names
+    assert {"ebs-in-backup-plan", "efs-in-backup-plan",
+            "dynamodb-in-backup-plan", "rds-in-backup-plan"} <= names
+
+
+def test_versioning_is_not_claimed_as_a_backup():
+    """It appears under CP-9 in many published crosswalks and does not belong."""
+    r = RPL["rules"]["s3-bucket-versioning-enabled"]
+    assert r["coverage"] == "supporting"
+    assert "NOT A BACKUP" in r["coverage_note"].upper()
+
+
+def test_si_13_is_claimed_by_no_catalog():
+    """si-13 resolves in NO Rev 5 baseline. Anything crosswalked to it would
+    claim coverage of a control the baseline never asks for (correction on #7)."""
+    for f in (ROOT / "rules").glob("*.yaml"):
+        doc = yaml.safe_load(f.read_text())
+        for name, rule in doc["rules"].items():
+            assert "si-13" not in rule["controls"].get("nist_800_53_r5", []), f"{f.name}:{name}"
+
+
+def test_rto_is_evidence_only_not_inferred_from_backup_frequency():
+    o = CATALOG["odps"]["recovery_time_objective_hours"]
+    assert isinstance(o.get("evidence_only"), str)
+    assert "proxy" in o["evidence_only"].lower()

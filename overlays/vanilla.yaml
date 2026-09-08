@@ -74,6 +74,24 @@ parameters:
   - param_id: approved_lambda_runtimes
     value: []
 
+  # --- cp-10 -> cp-10_odp.01 (time period) ---
+  # EVIDENCE ONLY — no managed rule can enforce this. The value appears in
+  # the evidence tags and in the coverage report, explicitly as unenforced.
+  - param_id: recovery_time_objective_hours
+    value: 24
+
+  # --- cp-9 -> cp-09_odp.02 (frequency) ---
+  - param_id: backup_minimum_frequency
+    value:
+      value: 24
+      unit: hours
+  - param_id: backup_minimum_retention_days
+    value: 35
+
+  # --- cp-9 -> cp-09_odp.03 (frequency) ---
+  - param_id: recovery_point_retention_days
+    value: 35
+
   # --- ia-5 -> ia-05_odp.01 (time period by authenticator type) ---
   - param_id: access_key_maximum_age_days
     value: 90

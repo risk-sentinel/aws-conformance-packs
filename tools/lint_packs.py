@@ -174,7 +174,7 @@ def check_python_compiles(root: Path, rep: Report) -> None:
 
 
 VALID_BASELINES = ("low", "moderate", "high")
-VALID_TYPES = ("integer", "string", "boolean", "enum", "list")
+VALID_TYPES = ("integer", "string", "boolean", "enum", "list", "duration")
 REQUIRED_ODP_FIELDS = (
     "description", "control", "oscal_param_id", "oscal_alt_id",
     "oscal_label", "baselines", "type", "constraint", "default",
@@ -208,6 +208,19 @@ def _violates_constraint(value, odp: dict) -> str | None:
             return f"expected a string, got {type(value).__name__} ({value!r})"
         if (mx := con.get("max_length")) and len(value) > mx:
             return f"length {len(value)} exceeds max_length {mx}"
+    elif typ == "duration":
+        if not isinstance(value, dict) or set(value) != {"value", "unit"}:
+            return f"expected a mapping with exactly `value` and `unit`, got {value!r}"
+        v, u = value["value"], value["unit"]
+        if isinstance(v, bool) or not isinstance(v, int):
+            return f"value {v!r} is not an integer"
+        units = con.get("units") or []
+        if u not in units:
+            return f"unit {u!r} is not one of {units}"
+        if (lo := con.get("min")) is not None and v < lo:
+            return f"{v} is below the minimum of {lo}"
+        if (hi := con.get("max")) is not None and v > hi:
+            return f"{v} is above the maximum of {hi}"
     elif typ == "list":
         if not isinstance(value, list):
             return f"expected a list, got {type(value).__name__} ({value!r})"
@@ -339,6 +352,13 @@ def check_odp_catalog(root: Path, rep: Report) -> None:
                 bad += 1
         if odp["type"] == "enum" and not con.get("values"):
             rep.fail(f"{where}: an enum ODP needs `constraint.values`")
+            bad += 1
+        if odp["type"] == "duration" and not (con.get("units")):
+            rep.fail(
+                f"{where}: a duration ODP needs `constraint.units`. The unit is the "
+                f"half that silently changes meaning by a factor of 24 when it "
+                f"disagrees with the value."
+            )
             bad += 1
         if odp["type"] == "list":
             if odp.get("item_type") not in ("integer", "string"):
@@ -588,6 +608,9 @@ def check_parameter_bindings(root: Path, rep: Report) -> None:
         for name, rule in (doc.get("rules") or {}).items():
             for param, b in (rule.get("parameters") or {}).items():
                 has = {"odp", "literal"} & set(b or {})
+                if "derive" in (b or {}) and "odp" not in (b or {}):
+                    rep.fail(f"{rf.relative_to(root)}:{name}.{param}: `derive` needs an `odp`")
+                    bad += 1
                 if len(has) != 1:
                     rep.fail(
                         f"{rf.relative_to(root)}:{name}.{param}: binding must declare "
