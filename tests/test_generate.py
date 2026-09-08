@@ -1351,3 +1351,45 @@ def test_preflight_refusal_names_the_rules_that_would_go_inert():
     assert "AWS::EC2::Instance" in using
     assert any("/" in r for r in using["AWS::EC2::Instance"])   # domain/rule
     assert len(using["AWS::EC2::Instance"]) > 1
+
+
+# --- CLI path validation (SonarCloud pythonsecurity:S8707 / S8705) -----------
+
+def test_cli_paths_reject_null_bytes_and_missing_files():
+    from tools import safe_paths as sp
+    with pytest.raises(sp.UnsafePath, match="null byte"):
+        sp.consumer_file("bad\x00path", "--x")
+    with pytest.raises(sp.UnsafePath, match="is empty"):
+        sp.consumer_file("   ", "--x")
+    with pytest.raises(sp.UnsafePath, match="does not exist"):
+        sp.consumer_file("/definitely/not/here.yaml", "--x")
+
+
+def test_subprocess_token_rejects_shell_metacharacters():
+    """Reaches an AWS CLI argv. The call passes a list rather than a shell
+    string, so this is defence in depth -- but an argv element is still an
+    injection surface for the program being invoked."""
+    from tools import safe_paths as sp
+    for bad in ("; rm -rf /", "$(whoami)", "`id`", "a b", "--profile=x"):
+        with pytest.raises(sp.UnsafePath):
+            sp.token(bad, "--profile")
+    for good in ("default", "prod-1", "my.profile_2"):
+        assert sp.token(good, "--profile") == good
+
+
+def test_out_dir_refuses_to_write_over_a_file(tmp_path):
+    from tools import safe_paths as sp
+    f = tmp_path / "notadir"; f.write_text("x")
+    with pytest.raises(sp.UnsafePath, match="not a directory"):
+        sp.out_dir(f)
+
+
+def test_validation_does_not_refuse_legitimate_outside_paths(tmp_path):
+    """The lesson from the preflight, applied here before it cost anything: a
+    guard that refuses valid work is one people learn to bypass. A consumer's
+    overlay or policy directory is legitimately outside this repository."""
+    from tools import safe_paths as sp
+    d = tmp_path / "policies"; d.mkdir()
+    f = d / "overlay.yaml"; f.write_text("baseline_level: moderate\n")
+    assert sp.consumer_file(f, "--overlay") == f.resolve()
+    assert sp.consumer_dir(d, "--artifact-dir") == d.resolve()

@@ -39,7 +39,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from tools.control_ids import normalize_control_id  # noqa: E402
-from tools import fedramp  # noqa: E402
+from tools import fedramp, safe_paths  # noqa: E402
 
 PASSED, FAILED, SKIPPED = "passed", "failed", "skipped"
 
@@ -245,7 +245,20 @@ def main() -> int:
     ap.add_argument("--out", type=Path, default=Path("out"))
     args = ap.parse_args()
 
-    cfg = yaml.safe_load(args.inputs.read_text()) if args.inputs.exists() else {}
+    try:
+        if args.inputs.exists():
+            cfg = yaml.safe_load(
+                safe_paths.consumer_file(args.inputs, "--inputs").read_text()) or {}
+        else:
+            cfg = {}
+        args.out = safe_paths.out_dir(args.out)
+        for attr, what in (("iac_inventory", "--iac-inventory"),
+                           ("recorded_inventory", "--recorded-inventory")):
+            if getattr(args, attr):
+                setattr(args, attr, safe_paths.consumer_file(getattr(args, attr), what))
+    except safe_paths.UnsafePath as exc:
+        print(f"::error::{exc}", file=sys.stderr)
+        return 1
     gov = cfg.get("gov") or {}
     art = args.artifact_dir or (Path(gov["artifact_dir"]) if gov.get("artifact_dir") else None)
     if art is None:
@@ -253,11 +266,14 @@ def main() -> int:
               "pass --artifact-dir. There is no default, because a default would point "
               "at somebody else's policies.", file=sys.stderr)
         return 1
-    if not art.is_dir():
-        print(f"::error::{art} is not a directory", file=sys.stderr)
+    try:
+        art = safe_paths.consumer_dir(art, "--artifact-dir")
+        overlay_path = safe_paths.consumer_file(
+            args.overlay or Path(cfg.get("overlay") or "overlays/vanilla.yaml"), "--overlay")
+    except safe_paths.UnsafePath as exc:
+        print(f"::error::{exc}", file=sys.stderr)
         return 1
 
-    overlay_path = args.overlay or Path(cfg.get("overlay") or "overlays/vanilla.yaml")
     catalog = yaml.safe_load((ROOT / "odp/catalog.yaml").read_text())["odps"]
     overlay = yaml.safe_load(overlay_path.read_text())
     vals = {e["param_id"]: e["value"] for e in (overlay.get("parameters") or [])}

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from datetime import date
 from pathlib import Path
 
@@ -86,7 +87,9 @@ def main() -> int:
     ap.add_argument("--out", type=Path, default=Path("vendor/nist"))
     ap.add_argument("--source", default="NIST SP 800-53 Rev 5 OSCAL resolved baselines")
     args = ap.parse_args()
+    args.catalogs = safe_paths.consumer_dir(args.catalogs, "--catalogs")
 
+    args.out = safe_paths.out_dir(args.out, "--out")
     index = build(args.catalogs)
     args.out.mkdir(parents=True, exist_ok=True)
     payload = {

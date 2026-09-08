@@ -34,6 +34,8 @@ from datetime import date
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from tools import safe_paths  # noqa: E402
 OUT = ROOT / "vendor/aws-services/aws-service-availability.json"
 API = ("https://api.github.com/repos/awslabs/oscal-content-for-aws-services/"
        "contents/component-definitions")
@@ -123,6 +125,7 @@ def main() -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--out", type=Path, default=OUT)
     args = ap.parse_args()
+    args.out = safe_paths.out_dir(args.out, "--out")
     payload = build()
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(payload, indent=1) + "\n")

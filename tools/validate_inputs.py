@@ -18,6 +18,8 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+import sys as _sys; _sys.path.insert(0, str(ROOT))
+from tools import safe_paths  # noqa: E402
 BASELINES = ("low", "moderate", "high")
 MODES = ("single-account", "organization")
 ACCOUNT_RE = re.compile(r"^\d{12}$")
@@ -147,7 +149,12 @@ def main() -> int:
         print(f"::error::{args.inputs} does not exist. Copy inputs.template.yml and fill "
               f"it in — nothing in it has a default, deliberately.", file=sys.stderr)
         return 1
-    cfg = yaml.safe_load(args.inputs.read_text()) or {}
+    try:
+        inputs = safe_paths.consumer_file(args.inputs, "--inputs")
+    except safe_paths.UnsafePath as exc:
+        print(f"::error::{exc}", file=sys.stderr)
+        return 1
+    cfg = yaml.safe_load(inputs.read_text()) or {}
     problems = validate(cfg)
     if problems:
         print(f"::error::{args.inputs} is not deployable:", file=sys.stderr)
