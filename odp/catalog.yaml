@@ -164,3 +164,85 @@ odps:
     type: integer
     constraint: { min: 1, max: 365 }
     default: 90
+
+  # ===========================================================================
+  # sc-7.5 — Deny by Default, Allow by Exception
+  # ---------------------------------------------------------------------------
+  # sc-07.05_odp.02 defines "systems for which network communications traffic is
+  # denied by default and allowed by exception". In AWS terms the port lists ARE
+  # that exception definition, which is why both bind here.
+  #
+  # NOT IN LOW: sc-7.5 resolves in Moderate and High only.
+  # ===========================================================================
+
+  blocked_ingress_ports:
+    description: >-
+      TCP ports that must not be reachable from an untrusted source in any
+      security group.
+    control: sc-7.5
+    oscal_param_id: sc-07.05_odp.02
+    oscal_alt_id: sc-7.5_prm_2
+    oscal_label: systems
+    baselines: [moderate, high]
+    type: list
+    item_type: integer
+    # FIVE, and this is a hard AWS limit, not a style choice.
+    # RESTRICTED_INCOMING_TRAFFIC exposes blockedPort1..blockedPort5 as five
+    # discrete parameters. A sixth entry does not error at deploy time -- it is
+    # simply never rendered, so the port stays unchecked while the catalog claims
+    # it is blocked. Past five, the rule must move to a Guard policy.
+    constraint: { max_items: 5, item_min: 1, item_max: 65535 }
+    default: [20, 21, 3389, 3306, 4333]
+
+  authorized_tcp_ports:
+    description: >-
+      TCP ports a security group is permitted to expose, as the allow-list side
+      of deny-by-default.
+    control: sc-7.5
+    oscal_param_id: sc-07.05_odp.02
+    oscal_alt_id: sc-7.5_prm_2
+    oscal_label: systems
+    baselines: [moderate, high]
+    type: list
+    item_type: integer
+    # No AWS cap here: authorizedTcpPorts is one comma-separated string. The cap
+    # is ours, to keep the rendered template inside the inline size budget.
+    constraint: { max_items: 32, item_min: 1, item_max: 65535 }
+    default: [443]
+
+  # ===========================================================================
+  # ac-4 — Information Flow Enforcement
+  # ===========================================================================
+
+  authorized_igw_vpc_ids:
+    description: >-
+      VPCs permitted to have an internet gateway attached. Empty means none are,
+      which is the deny-by-default posture.
+    control: ac-4
+    oscal_param_id: ac-04_odp
+    oscal_alt_id: ac-4_prm_1
+    oscal_label: information flow control policies
+    baselines: [moderate, high]
+    type: list
+    item_type: string
+    # Deliberately defaults to EMPTY. A VPC id is environment-specific, and any
+    # value shipped here would be someone else's account. An empty allow-list
+    # fails closed, which is the right way for this to be wrong.
+    constraint: { max_items: 50 }
+    default: []
+
+  # ===========================================================================
+  # sc-7.4 — External Telecommunications Services
+  # ===========================================================================
+
+  traffic_flow_policy_review_days:
+    description: >-
+      Interval at which exceptions to the traffic flow policy are reviewed.
+    control: sc-7.4
+    oscal_param_id: sc-07.04_odp
+    oscal_alt_id: sc-7.4_prm_1
+    oscal_label: frequency
+    baselines: [moderate, high]
+    type: integer
+    constraint: { min: 1, max: 365 }
+    default: 365

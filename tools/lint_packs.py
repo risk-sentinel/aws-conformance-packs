@@ -165,7 +165,7 @@ def check_python_compiles(root: Path, rep: Report) -> None:
 
 
 VALID_BASELINES = ("low", "moderate", "high")
-VALID_TYPES = ("integer", "string", "boolean", "enum")
+VALID_TYPES = ("integer", "string", "boolean", "enum", "list")
 REQUIRED_ODP_FIELDS = (
     "description", "control", "oscal_param_id", "oscal_alt_id",
     "oscal_label", "baselines", "type", "constraint", "default",
@@ -199,6 +199,24 @@ def _violates_constraint(value, odp: dict) -> str | None:
             return f"expected a string, got {type(value).__name__} ({value!r})"
         if (mx := con.get("max_length")) and len(value) > mx:
             return f"length {len(value)} exceeds max_length {mx}"
+    elif typ == "list":
+        if not isinstance(value, list):
+            return f"expected a list, got {type(value).__name__} ({value!r})"
+        if (mx := con.get("max_items")) is not None and len(value) > mx:
+            return (f"{len(value)} items exceeds max_items {mx}. This is not a style "
+                    f"limit: past it the extra entries are never rendered, so they go "
+                    f"unchecked while the catalog claims otherwise")
+        it = odp.get("item_type")
+        for v in value:
+            if it == "integer":
+                if isinstance(v, bool) or not isinstance(v, int):
+                    return f"item {v!r} is not an integer"
+                if (lo := con.get("item_min")) is not None and v < lo:
+                    return f"item {v} is below item_min {lo}"
+                if (hi := con.get("item_max")) is not None and v > hi:
+                    return f"item {v} is above item_max {hi}"
+            elif it == "string" and not isinstance(v, str):
+                return f"item {v!r} is not a string"
     return None
 
 
@@ -291,6 +309,17 @@ def check_odp_catalog(root: Path, rep: Report) -> None:
         if odp["type"] == "enum" and not con.get("values"):
             rep.fail(f"{where}: an enum ODP needs `constraint.values`")
             bad += 1
+        if odp["type"] == "list":
+            if odp.get("item_type") not in ("integer", "string"):
+                rep.fail(f"{where}: a list ODP needs `item_type` of integer or string")
+                bad += 1
+            if con.get("max_items") is None:
+                rep.fail(
+                    f"{where}: a list ODP needs `constraint.max_items`. Several AWS "
+                    f"rules expose a fixed number of numbered parameters, and an "
+                    f"over-long list is silently truncated rather than rejected."
+                )
+                bad += 1
 
         # The one that catches a catalog contradicting itself.
         if (reason := _violates_constraint(odp["default"], odp)):

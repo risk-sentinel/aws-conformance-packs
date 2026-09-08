@@ -1,0 +1,362 @@
+# Rule catalog — Network & Boundary Protection (NET). Portable: no organization
+# values, no organization control names.
+#
+# ---------------------------------------------------------------------------
+# THE CAVEAT THAT GOVERNS THIS WHOLE DOMAIN
+# ---------------------------------------------------------------------------
+# AWS Config evaluates security groups, NACLs and load balancers as OBJECTS, not
+# as reachability. An unused security group with 0.0.0.0/0 fails, while a
+# genuinely exposed workload sitting behind a compliant security group and an
+# open ALB passes.
+#
+# This domain therefore has the widest gap in the programme between "the rule
+# says PASS" and "the boundary is sound". Every rule here carries that in its
+# rendered description, because an operator reading a green Config console is
+# exactly the person who needs to know it.
+#
+# ---------------------------------------------------------------------------
+# IPv6
+# ---------------------------------------------------------------------------
+# Several of these rules historically evaluated only 0.0.0.0/0 and not ::/0.
+# `ipv6_evaluated` records what we believe per rule, and `false` is rendered into
+# the description as a caveat. Where it is unknown it is marked unknown rather
+# than assumed -- an assumed `true` here is a silent IPv6 hole.
+
+version: 1
+domain: NET
+pack_slug: 800-53r5-NET
+
+# Regional, unlike IAM: these resource types are recorded per Region, so the pack
+# is deployed to every Region carrying workloads.
+region_scope: regional
+
+# Rendered into the coverage report. The gap this names is the single most
+# important thing a reader of this pack's results needs to hold in mind.
+domain_caveat: >-
+  AWS Config evaluates security groups, NACLs and load balancers as OBJECTS, not
+  as reachability. An unused security group with 0.0.0.0/0 fails, while a
+  genuinely exposed workload behind a compliant security group and an open load
+  balancer passes. This pack's verdicts are configuration facts about boundary
+  components, not an assertion that the boundary is sound. Reachability testing
+  is a different evidence producer and this pack does not substitute for it.
+
+# Indicators in scope for this domain that no Config rule here measures.
+not_modeled:
+  KSI-CNA-EIS: >-
+    Enforcing Intended State is an architecture property — whether infrastructure
+    is redeployed rather than modified in place. That is not a resource attribute
+    Config can read. It belongs to the VCM pack's change-management evidence or to
+    attestation; forcing a rule onto it would manufacture a verdict.
+  KSI-CNA-OFA: >-
+    Optimizing for Availability is a design and capacity property, not a boundary
+    configuration fact. Out of scope for this pack by intent.
+
+required_resource_types:
+  - AWS::EC2::SecurityGroup
+  - AWS::EC2::NetworkAcl
+  - AWS::EC2::Subnet
+  - AWS::EC2::VPC
+  - AWS::ElasticLoadBalancingV2::LoadBalancer
+  - AWS::EC2::Instance
+  - AWS::S3::Bucket
+  - AWS::RDS::DBInstance
+  - AWS::Redshift::Cluster
+  - AWS::ApiGateway::Stage
+  - AWS::CloudFront::Distribution
+
+rules:
+
+  restricted-common-ports:
+    source: managed
+    identifier: RESTRICTED_INCOMING_TRAFFIC
+    description: >-
+      Security groups do not allow unrestricted ingress on high-risk TCP ports.
+    resource_types: [AWS::EC2::SecurityGroup]
+    controls:
+      nist_800_53_r5: [sc-7.5, sc-7]
+      ksi: [KSI-CNA-RNT, KSI-CNA-ULN]
+    coverage: partial
+    ipv6_evaluated: false
+    coverage_note: >-
+      Evaluates the security group as an object, not reachability. An unused group
+      fails while an exposed workload behind a compliant group and an open load
+      balancer passes. The rule also exposes only FIVE port slots, so it can never
+      express a longer prohibition list.
+    parameters:
+      "blockedPort{n}":
+        odp: blocked_ingress_ports
+        expand: 5
+
+  vpc-sg-open-only-to-authorized-ports:
+    source: managed
+    identifier: VPC_SG_OPEN_ONLY_TO_AUTHORIZED_PORTS
+    description: >-
+      Security groups open to an untrusted source expose only authorized ports.
+    resource_types: [AWS::EC2::SecurityGroup]
+    controls:
+      nist_800_53_r5: [sc-7.5, sc-7]
+      ksi: [KSI-CNA-RNT]
+    coverage: partial
+    ipv6_evaluated: unknown
+    coverage_note: >-
+      The allow-list side of deny-by-default, and object-level like every rule in
+      this pack. IPv6 handling is unverified for this rule; confirm against a live
+      account before relying on it for a dual-stack boundary.
+    parameters:
+      authorizedTcpPorts: { odp: authorized_tcp_ports }
+
+  vpc-default-security-group-closed:
+    source: managed
+    identifier: VPC_DEFAULT_SECURITY_GROUP_CLOSED
+    description: >-
+      The default security group of every VPC allows no inbound or outbound
+      traffic.
+    resource_types: [AWS::EC2::SecurityGroup]
+    controls:
+      nist_800_53_r5: [sc-7.5, sc-7]
+      ksi: [KSI-CNA-RNT, KSI-CNA-MAT]
+    coverage: full
+    ipv6_evaluated: true
+
+  internet-gateway-authorized-vpc-only:
+    source: managed
+    identifier: INTERNET_GATEWAY_AUTHORIZED_VPC_ONLY
+    not_in_aws_pack: >-
+      Real, but not in AWS's NIST r5 pack. Identifier and the AuthorizedVpcIds
+      parameter are UNVERIFIED against a published AWS artifact -- and this rule
+      fails closed on an empty list, so a wrong parameter name would produce a
+      pack-wide FAIL rather than a silent pass. Confirm on first deploy.
+    description: >-
+      Internet gateways are attached only to VPCs authorized to have one.
+    resource_types: [AWS::EC2::VPC]
+    controls:
+      nist_800_53_r5: [ac-4, sc-7]
+      ksi: [KSI-CNA-ULN, KSI-IAM-ELP]
+    coverage: partial
+    ipv6_evaluated: true
+    coverage_note: >-
+      The authorized-VPC list defaults to EMPTY, which fails closed. That is
+      deliberate -- a VPC id is environment-specific and any value shipped in a
+      portable catalog would be somebody else's account. Populate it in your
+      overlay before reading a FAIL here as a finding.
+    parameters:
+      AuthorizedVpcIds: { odp: authorized_igw_vpc_ids }
+
+  subnet-auto-assign-public-ip-disabled:
+    source: managed
+    identifier: SUBNET_AUTO_ASSIGN_PUBLIC_IP_DISABLED
+    description: >-
+      Subnets do not automatically assign public IPv4 addresses.
+    resource_types: [AWS::EC2::Subnet]
+    controls:
+      nist_800_53_r5: [sc-7, sc-7.5]
+      ksi: [KSI-CNA-MAT, KSI-CNA-ULN]
+    coverage: partial
+    ipv6_evaluated: false
+    coverage_note: >-
+      Evaluates the IPv4 auto-assign attribute only. A subnet auto-assigning IPv6
+      addresses passes this rule, which is the specific IPv6 gap this domain is
+      prone to.
+
+  vpc-flow-logs-enabled:
+    source: managed
+    identifier: VPC_FLOW_LOGS_ENABLED
+    description: >-
+      VPC flow logs are enabled.
+    resource_types: [AWS::EC2::VPC]
+    controls:
+      nist_800_53_r5: [ac-4, sc-7]
+      ksi: [KSI-CNA-ULN]
+    coverage: supporting
+    ipv6_evaluated: true
+    coverage_note: >-
+      Checks only that flow logging EXISTS -- not its destination, retention, or
+      whether it captures rejected traffic. On its own this supports boundary
+      monitoring rather than evidencing it; pair with the LOG pack's retention ODP
+      or the evidence overstates AU coverage.
+
+  elbv2-acm-certificate-required:
+    source: managed
+    identifier: ELBV2_ACM_CERTIFICATE_REQUIRED
+    description: >-
+      Application and network load balancers use ACM-managed certificates.
+    resource_types: [AWS::ElasticLoadBalancingV2::LoadBalancer]
+    controls:
+      nist_800_53_r5: [sc-7]
+      ksi: [KSI-CNA-ULN]
+    coverage: supporting
+    ipv6_evaluated: true
+    coverage_note: >-
+      Certificate provenance, not transport strength. It says nothing about the
+      TLS policy or cipher suite in force -- that belongs to the CRYPTO pack's
+      minimum-TLS ODP.
+
+  alb-http-to-https-redirection-check:
+    source: managed
+    identifier: ALB_HTTP_TO_HTTPS_REDIRECTION_CHECK
+    description: >-
+      Application load balancer HTTP listeners redirect to HTTPS.
+    resource_types: [AWS::ElasticLoadBalancingV2::LoadBalancer]
+    controls:
+      nist_800_53_r5: [ac-17, sc-7]
+      ksi: [KSI-IAM-ELP]
+    coverage: partial
+    ipv6_evaluated: true
+    coverage_note: >-
+      Covers the redirect only. Traffic that never traverses the load balancer,
+      and any listener on a non-standard port, is out of scope.
+
+  restricted-ssh:
+    source: managed
+    identifier: INCOMING_SSH_DISABLED
+    description: >-
+      Security groups do not allow unrestricted ingress on TCP 22.
+    resource_types: [AWS::EC2::SecurityGroup]
+    controls:
+      nist_800_53_r5: [sc-7.5, sc-7]
+      ksi: [KSI-CNA-RNT, KSI-CNA-ULN]
+    coverage: partial
+    ipv6_evaluated: false
+    coverage_note: >-
+      Historically evaluates IPv4 CIDRs only, so a group open to ::/0 on port 22
+      can PASS. Object-level like the rest of this pack: it says nothing about
+      whether anything is actually reachable on that port.
+
+  ec2-instance-no-public-ip:
+    source: managed
+    identifier: EC2_INSTANCE_NO_PUBLIC_IP
+    description: >-
+      EC2 instances do not have a public IP address.
+    resource_types: [AWS::EC2::Instance]
+    controls:
+      nist_800_53_r5: [sc-7, sc-7.5]
+      ksi: [KSI-CNA-ULN, KSI-CNA-MAT]
+    coverage: full
+    ipv6_evaluated: false
+    coverage_note: >-
+      Evaluates the public IPv4 association only. An instance reachable over a
+      routable IPv6 address passes.
+
+  rds-instance-public-access-check:
+    source: managed
+    identifier: RDS_INSTANCE_PUBLIC_ACCESS_CHECK
+    description: >-
+      RDS instances are not publicly accessible.
+    resource_types: [AWS::RDS::DBInstance]
+    controls:
+      nist_800_53_r5: [sc-7, ac-4]
+      ksi: [KSI-CNA-ULN, KSI-IAM-ELP]
+    coverage: full
+    ipv6_evaluated: true
+
+  redshift-cluster-public-access-check:
+    source: managed
+    identifier: REDSHIFT_CLUSTER_PUBLIC_ACCESS_CHECK
+    description: >-
+      Redshift clusters are not publicly accessible.
+    resource_types: [AWS::Redshift::Cluster]
+    controls:
+      nist_800_53_r5: [sc-7, ac-4]
+      ksi: [KSI-CNA-ULN, KSI-IAM-ELP]
+    coverage: full
+    ipv6_evaluated: true
+
+  s3-bucket-public-read-prohibited:
+    source: managed
+    identifier: S3_BUCKET_PUBLIC_READ_PROHIBITED
+    description: >-
+      S3 buckets do not permit public read access.
+    resource_types: [AWS::S3::Bucket]
+    controls:
+      nist_800_53_r5: [ac-3, sc-7]
+      ksi: [KSI-IAM-ELP, KSI-CNA-ULN]
+    coverage: full
+    ipv6_evaluated: true
+    periodic: true
+    periodic_note: >-
+      Periodic as well as change-triggered. A bucket made public between
+      evaluations is invisible until the next run.
+
+  s3-bucket-public-write-prohibited:
+    source: managed
+    identifier: S3_BUCKET_PUBLIC_WRITE_PROHIBITED
+    description: >-
+      S3 buckets do not permit public write access.
+    resource_types: [AWS::S3::Bucket]
+    controls:
+      nist_800_53_r5: [ac-3, sc-7]
+      ksi: [KSI-IAM-ELP, KSI-CNA-ULN]
+    coverage: full
+    ipv6_evaluated: true
+    periodic: true
+    periodic_note: >-
+      Periodic as well as change-triggered; drift between evaluations is invisible.
+
+  s3-account-level-public-access-blocks-periodic:
+    source: managed
+    identifier: S3_ACCOUNT_LEVEL_PUBLIC_ACCESS_BLOCKS_PERIODIC
+    description: >-
+      Account-level S3 Block Public Access is enabled.
+    resource_types: [AWS::S3::AccountPublicAccessBlock]
+    controls:
+      nist_800_53_r5: [ac-3, sc-7]
+      ksi: [KSI-IAM-ELP, KSI-CNA-ULN]
+    coverage: full
+    ipv6_evaluated: true
+    periodic: true
+    periodic_note: >-
+      Evaluates ONCE PER ACCOUNT rather than per bucket, so in an aggregated view
+      this is a single finding covering the whole account.
+
+  alb-waf-enabled:
+    source: managed
+    identifier: ALB_WAF_ENABLED
+    description: >-
+      Application load balancers are associated with a WAF web ACL.
+    resource_types: [AWS::ElasticLoadBalancingV2::LoadBalancer]
+    controls:
+      nist_800_53_r5: [sc-5, sc-7]
+      ksi: [KSI-CNA-RVP, KSI-CNA-ULN]
+    coverage: supporting
+    ipv6_evaluated: true
+    coverage_note: >-
+      A WAF ASSOCIATION is not denial-of-service protection. It says nothing about
+      the rules in the web ACL, whether they are in block or count mode, or
+      whether Shield Advanced is subscribed — and Shield state is not a Config
+      resource at all. Supporting evidence toward sc-5; never read a PASS here as
+      sc-5 being met.
+
+  api-gw-associated-with-waf:
+    source: managed
+    identifier: API_GW_ASSOCIATED_WITH_WAF
+    description: >-
+      API Gateway stages are associated with a WAF web ACL.
+    resource_types: [AWS::ApiGateway::Stage]
+    controls:
+      nist_800_53_r5: [sc-5, sc-7]
+      ksi: [KSI-CNA-RVP, KSI-CNA-ULN]
+    coverage: supporting
+    ipv6_evaluated: true
+    coverage_note: >-
+      Association only, and the same caveat as alb-waf-enabled: the web ACL's
+      contents and mode are invisible to this rule.
+
+  cloudfront-associated-with-waf:
+    source: managed
+    identifier: CLOUDFRONT_ASSOCIATED_WITH_WAF
+    not_in_aws_pack: >-
+      Real, but not in AWS's NIST r5 pack. Takes no parameters, so the exposure
+      is the identifier alone: a wrong one reports INSUFFICIENT_DATA, which is
+      indistinguishable from a global resource recorded in another Region.
+    description: >-
+      CloudFront distributions are associated with a WAF web ACL.
+    resource_types: [AWS::CloudFront::Distribution]
+    controls:
+      nist_800_53_r5: [sc-5, sc-7]
+      ksi: [KSI-CNA-RVP, KSI-CNA-ULN]
+    coverage: supporting
+    ipv6_evaluated: true
+    coverage_note: >-
+      Association only. CloudFront is a GLOBAL resource type recorded in one
+      Region; in every other Region this reports INSUFFICIENT_DATA rather than
+      failing.

@@ -309,3 +309,163 @@ def test_evidence_names_the_snapshot_it_was_assessed_against(tmp_path):
     assert _run_cli(tmp_path, []) == 0
     tags = json.loads((tmp_path / "out/800-53r5-IAM.evidence-tags.json").read_text())
     assert tags["fedramp_snapshot"]["version"] != "unknown"
+
+
+# --- NET: list ODPs and the five-slot rule cap -------------------------------
+
+NET = yaml.safe_load((ROOT / "rules/net.yaml").read_text())
+
+
+def net(): return copy.deepcopy(NET)
+
+
+def _ov_with(param_id, value):
+    o = ov()
+    o["parameters"] = [p for p in o["parameters"] if p["param_id"] != param_id]
+    o["parameters"].append({"param_id": param_id, "value": value})
+    return o
+
+
+def test_list_odp_renders_as_numbered_slots():
+    """RESTRICTED_INCOMING_TRAFFIC takes blockedPort1..5, not one list."""
+    t, _, _ = generate.render_pack(cat(), net(), generate.resolve(cat(), ov(), None), "moderate")
+    ip = t["Resources"]["RestrictedCommonPorts"]["Properties"]["InputParameters"]
+    assert sorted(ip) == [f"blockedPort{i}" for i in range(1, 6)]
+
+
+def test_list_odp_without_expand_renders_comma_joined():
+    t, _, _ = generate.render_pack(cat(), net(), generate.resolve(cat(), ov(), None), "moderate")
+    p = t["Parameters"]["VpcSgOpenOnlyToAuthorizedPortsParamAuthorizedTcpPorts"]
+    assert p["Default"] == "443"
+
+
+def test_too_many_ports_for_the_rules_slots_refused():
+    """The guard issue #3 asks for. A 6th port does NOT error at deploy time --
+    it is simply never rendered, so it goes unchecked while appearing set."""
+    c = cat()
+    c["odps"]["blocked_ingress_ports"]["constraint"]["max_items"] = 10   # catalog allows it
+    o = _ov_with("blocked_ingress_ports", [20, 21, 23, 25, 3389, 3306, 4333])
+    with pytest.raises(GenerationError, match="only 5 slots"):
+        generate.render_pack(c, net(), generate.resolve(c, o, None), "moderate")
+
+
+def test_list_item_out_of_range_refused():
+    with pytest.raises(GenerationError, match="above item_max"):
+        generate.resolve(cat(), _ov_with("blocked_ingress_ports", [70000]), None)
+
+
+def test_list_item_of_wrong_type_refused():
+    with pytest.raises(GenerationError, match="is not an integer"):
+        generate.resolve(cat(), _ov_with("blocked_ingress_ports", [22, "ssh"]), None)
+
+
+def test_scalar_where_a_list_is_declared_refused():
+    with pytest.raises(GenerationError, match="expected a list"):
+        generate.resolve(cat(), _ov_with("blocked_ingress_ports", 22), None)
+
+
+def test_ipv6_gap_is_rendered_into_the_description():
+    """An operator reading a green console cannot otherwise know."""
+    t, _, _ = generate.render_pack(cat(), net(), generate.resolve(cat(), ov(), None), "moderate")
+    d = t["Resources"]["SubnetAutoAssignPublicIpDisabled"]["Properties"]["Description"]
+    assert "IPv6: NOT evaluated" in d
+    d2 = t["Resources"]["VpcSgOpenOnlyToAuthorizedPorts"]["Properties"]["Description"]
+    assert "IPv6: UNVERIFIED" in d2
+
+
+def test_net_coverage_report_states_reachability_and_unmodeled(tmp_path):
+    rc = _run_cli(tmp_path, ["--rules", str(ROOT / "rules/net.yaml")])
+    assert rc == 0
+    md = (tmp_path / "out/800-53r5-NET.coverage.md").read_text()
+    assert "not as reachability" in md
+    assert "Not modeled by any rule in this pack" in md
+    # CNA-EIS stays unmodeled: redeploy-vs-modify is not a resource attribute.
+    assert "KSI-CNA-EIS" in md
+    assert "IPv6 evaluation" in md
+
+
+def test_waf_rules_are_supporting_not_a_dos_claim():
+    """A WAF association is not sc-5. Shield subscription state is not even a
+    Config resource, so a PASS here must never read as DoS protection."""
+    t, _, _ = generate.render_pack(cat(), net(), generate.resolve(cat(), ov(), None), "moderate")
+    for logical in ("AlbWafEnabled", "ApiGwAssociatedWithWaf", "CloudfrontAssociatedWithWaf"):
+        d = t["Resources"][logical]["Properties"]["Description"]
+        assert "[coverage: supporting]" in d, logical
+    assert "never read a PASS here as" in t["Resources"]["AlbWafEnabled"]["Properties"]["Description"]
+
+
+def test_every_candidate_rule_named_in_the_issue_is_built():
+    """#3 named 18 candidates. The first pass built 8 and closed the issue, which
+    let the plan table redefine the target instead of meeting it."""
+    import re
+    sec = (ROOT / "issues/02-network-boundary.md").read_text() \
+        .split("## Candidate managed rules")[1].split("##")[0]
+    cands = {c for c in re.findall(r"`([a-z0-9]+(?:-[a-z0-9]+)+)`", sec) if not c.isupper()}
+    assert cands - set(NET["rules"]) == set()
+
+
+# --- verification against AWS's own published pack ---------------------------
+
+def test_aws_pack_loads_and_indexes_both_ways():
+    from tools import aws_pack
+    p = aws_pack.load()
+    assert len(p.rules_by_name) == 130          # exactly the per-pack service cap
+    r = p.get("iam-password-policy")
+    assert r.identifier == "IAM_PASSWORD_POLICY"
+    assert "MinimumPasswordLength" in r.parameters
+
+
+def test_wrong_identifier_refused(tmp_path):
+    """Does not fail at deploy time -- it reports INSUFFICIENT_DATA forever."""
+    import subprocess
+    r = rl(); r["rules"]["iam-password-policy"]["identifier"] = "IAM_PASSWORD_POLICY_V2"
+    (tmp_path / "iam.yaml").write_text(yaml.safe_dump(r))
+    proc = subprocess.run(
+        [sys.executable, str(ROOT / "generate.py"), "--overlay", str(ROOT / "overlays/vanilla.yaml"),
+         "--out", str(tmp_path / "out"), "--rules", str(tmp_path / "iam.yaml")],
+        capture_output=True, text=True, cwd=ROOT)
+    assert proc.returncode == 1
+    assert "AWS publishes" in proc.stderr
+
+
+def test_unpublished_parameter_name_refused(tmp_path):
+    """An unrecognised InputParameter is IGNORED at evaluation time, so the
+    threshold silently does not apply -- the rule passes on AWS's default."""
+    import subprocess
+    r = rl()
+    r["rules"]["iam-password-policy"]["parameters"]["MinPasswordLen"] = \
+        r["rules"]["iam-password-policy"]["parameters"].pop("MinimumPasswordLength")
+    (tmp_path / "iam.yaml").write_text(yaml.safe_dump(r))
+    proc = subprocess.run(
+        [sys.executable, str(ROOT / "generate.py"), "--overlay", str(ROOT / "overlays/vanilla.yaml"),
+         "--out", str(tmp_path / "out"), "--rules", str(tmp_path / "iam.yaml")],
+        capture_output=True, text=True, cwd=ROOT)
+    assert proc.returncode == 1
+    assert "not published for this rule" in proc.stderr
+
+
+def test_unknown_rule_needs_an_explicit_declaration(tmp_path):
+    import subprocess
+    r = rl()
+    r["rules"]["totally-made-up-rule"] = {
+        "source": "managed", "identifier": "TOTALLY_MADE_UP_RULE",
+        "description": "x", "resource_types": ["AWS::IAM::User"],
+        "controls": {"nist_800_53_r5": ["ia-5"], "ksi": ["KSI-IAM-APM"]},
+        "coverage": "full",
+    }
+    (tmp_path / "iam.yaml").write_text(yaml.safe_dump(r))
+    proc = subprocess.run(
+        [sys.executable, str(ROOT / "generate.py"), "--overlay", str(ROOT / "overlays/vanilla.yaml"),
+         "--out", str(tmp_path / "out"), "--rules", str(tmp_path / "iam.yaml")],
+        capture_output=True, text=True, cwd=ROOT)
+    assert proc.returncode == 1
+    assert "not_in_aws_pack" in proc.stderr
+
+
+def test_declared_exception_is_allowed_and_surfaced(tmp_path):
+    """The escape must be a stated reason, and it must reach the report --
+    an unverifiable rule that looks verified is the thing to avoid."""
+    assert _run_cli(tmp_path, ["--rules", str(ROOT / "rules/net.yaml")]) == 0
+    md = (tmp_path / "out/800-53r5-NET.coverage.md").read_text()
+    assert "Not verifiable against AWS's published pack" in md
+    assert "cloudfront-associated-with-waf" in md
