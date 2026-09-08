@@ -42,6 +42,31 @@ baseline_level: high
 
 parameters:
 
+  # --- ac-1 -> ac-01_odp.03 (personnel or roles) ---
+  # GOVERNANCE — evaluated by tools/gov_evidence.py against policy artifacts,
+  # not by any AWS Config rule. See gov/README.md.
+  - param_id: approved_policy_approver_roles
+    value:
+    - ciso
+    - iso
+    - isso
+    - authorizing-official
+    - system-owner
+
+  # --- ac-1 -> ac-01_odp.05 (frequency) ---
+  # GOVERNANCE — evaluated by tools/gov_evidence.py against policy artifacts,
+  # not by any AWS Config rule. See gov/README.md.
+  - param_id: policy_review_interval_days
+    value: 365
+  - param_id: procedure_review_interval_days
+    value: 365
+
+  # --- ac-2 -> ac-02_odp.10 (frequency) ---
+  # GOVERNANCE — evaluated by tools/gov_evidence.py against policy artifacts,
+  # not by any AWS Config rule. See gov/README.md.
+  - param_id: account_review_interval_days
+    value: 90
+
   # --- ac-2.3 -> ac-02.03_odp.02 (time period) ---
   - param_id: credential_inactivity_days
     value: 90
@@ -57,6 +82,12 @@ parameters:
     value:
     - kms:Decrypt
     - kms:ReEncryptFrom
+
+  # --- at-2 -> at-02_odp.01 (frequency) ---
+  # GOVERNANCE — evaluated by tools/gov_evidence.py against policy artifacts,
+  # not by any AWS Config rule. See gov/README.md.
+  - param_id: security_training_interval_days
+    value: 365
 
   # --- au-11 -> au-11_odp (time period) ---
   - param_id: audit_log_retention_days
@@ -84,6 +115,12 @@ parameters:
   - param_id: recovery_time_objective_hours
     value: 24
 
+  # --- cp-4 -> cp-04_odp.01 (frequency) ---
+  # GOVERNANCE — evaluated by tools/gov_evidence.py against policy artifacts,
+  # not by any AWS Config rule. See gov/README.md.
+  - param_id: contingency_test_interval_days
+    value: 365
+
   # --- cp-9 -> cp-09_odp.02 (frequency) ---
   - param_id: backup_minimum_frequency
     value:
@@ -108,6 +145,10 @@ parameters:
   - param_id: password_minimum_length
     value: 14
   - param_id: password_reuse_prevention
+    value: 24
+
+  # --- ir-6 -> ir-06_odp.01 (time period) ---
+  - param_id: incident_report_deadline_hours
     value: 24
 
   # --- sc-12 -> sc-12_odp (requirements) ---

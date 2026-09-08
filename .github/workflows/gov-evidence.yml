@@ -1,0 +1,88 @@
+name: GOV policy evidence
+
+# RUNS ON A SCHEDULE, and that is the point rather than a convenience.
+#
+# A review interval expires by the passage of TIME, not by a commit. A policy
+# reviewed 13 months ago under a 12-month interval is non-compliant today, and
+# nothing in a commit-triggered pipeline will ever notice, because nothing
+# changed. The scheduled run is the control; the push trigger is convenience.
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  push:
+    branches: [main]
+    paths: ['gov/**', 'tools/gov_evidence.py', 'odp/catalog.yaml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CI_RUNNER_IMAGE: risksentinel/sparc-ci-runner:v0.6.2
+
+jobs:
+  evidence:
+    name: GOV evidence
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Resolve the artifact directory
+        id: art
+        run: |
+          set -euo pipefail
+          # A consumer points gov.artifact_dir at their own policy repository.
+          # Without inputs.yml we fall back to this repo's worked examples, and
+          # say so -- an example evaluated as though it were real evidence is
+          # exactly the confusion this job must not create.
+          if [ -f inputs.yml ]; then
+            dir=$(python3 -c "import yaml;print((yaml.safe_load(open('inputs.yml')).get('gov') or {}).get('artifact_dir') or '')")
+          else
+            dir=""
+          fi
+          if [ -z "$dir" ]; then
+            echo "::notice::No gov.artifact_dir configured. Evaluating this repository's WORKED EXAMPLES in gov/artifacts/ — one compliant, one deliberately not. This is a demonstration, NOT evidence about your organization."
+            dir="gov/artifacts"
+          fi
+          echo "dir=$dir" >> "$GITHUB_OUTPUT"
+
+      - name: Produce evidence
+        run: |
+          set -uo pipefail
+          docker run --rm -v "$PWD:/work" -w /work --entrypoint python3 \
+            "${CI_RUNNER_IMAGE}" tools/gov_evidence.py \
+              --artifact-dir "${{ steps.art.outputs.dir }}" --out out/
+
+      - name: Summarise
+        if: always()
+        run: |
+          set -uo pipefail
+          f=out/gov-policy-evidence.hdf.json
+          [ -f "$f" ] || { echo "::error::no HDF produced"; exit 1; }
+          python3 - "$f" <<'PY'
+          import json,sys
+          d=json.load(open(sys.argv[1]))
+          cs=d["profiles"][0]["controls"]
+          {} if not cs else None
+          out=["### GOV policy evidence","",
+               f"{len(cs)} control(s) evaluated.","",
+               "| Control | Status | Failing check |","|---|---|---|"]
+          for c in cs:
+              bad=[r for r in c["results"] if r["status"]=="failed"]
+              out.append(f"| `{c['id']}` | {c.get('status','?')} | "
+                         f"{(bad[0].get('message') or bad[0]['code_desc'])[:90] if bad else '—'} |")
+          out += ["","**Findings are the output, not an error.** A non-compliant policy is a",
+                  "finding; a failed job would make it indistinguishable from a broken producer.",
+                  "","Existence of a document never satisfies a control on its own — review",
+                  "recency, an authorized approver, and SSP-version agreement are what do."]
+          open(__import__("os").environ["GITHUB_STEP_SUMMARY"],"a").write("\n".join(out)+"\n")
+          PY
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: gov-policy-evidence
+          path: out/gov-policy-evidence.hdf.json
+          if-no-files-found: error

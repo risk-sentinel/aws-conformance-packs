@@ -8,16 +8,20 @@ per-organization ODP overlay. It is a *generator and a deployment pattern*, not 
 profile: there are no InSpec controls here. Evidence leaves this repo as Config
 rule evaluations, which `risk-sentinel/aws-config` converts to HDF.
 
-**Last updated:** 2026-09-08 (**Phase 4 — the packs can now be deployed.** #30 adds the
-`inputs.yml` contract in which **nothing identifying a consumer's environment has a
-default**, a validator that refuses eleven ways a deploy could go wrong before anything
-happens, deploy paths for **both forges** holding no role and no credential, and the
-recorder preflight every domain issue asked for. That preflight **cannot be a Config
-rule** — a rule about the recorder, evaluated by the recorder, is circular — so it runs
-out of band and **refuses rather than warns**, because a pack on an unconfigured recorder
-produces a green board and no evidence. README now carries a **generated** per-resource-type
-coverage table so an adopting team can see what their boundary actually gets; CI fails if
-it drifts, since a hand-maintained coverage claim is stale the day after it is written.)
+**Last updated:** 2026-09-08 (**GOV shipped — the producer for the ~120 controls AWS
+Config cannot see.** #8 emits **zero Config rules by design** and evaluates policy
+artifacts instead. Its governing constraint is the issue's own warning: *"the policy
+file exists" is not evidence*. So existence is emitted, labelled **WEAK**, and **never
+satisfies a control on its own** — the three checks that count are review recency, an
+authorized approver of record, and **SSP-version reconciliation**, which catches the
+drift where the SSP describes a policy nobody is following. Two worked artifacts ship,
+one compliant and one deliberately not, so the failure paths are exercised by something
+real. It runs **on a schedule**, because a review interval expires by the passage of time
+and a commit-triggered pipeline never notices. The `KSI-PIY-GIV` inventory reconciliation
+reports **SKIPPED, never passed**, with no input. Control ids come from the same
+normalizer the pack generator uses — GOV emitting `AC-1` while a pack emits `ac-2`
+fragments the Heimdall rollup, and a fragmented rollup looks like partial coverage rather
+than a defect.)
 
 ---
 
@@ -107,7 +111,7 @@ checklist.
 |---|---|
 | Tracking issues | **9 filed** — #1 epic, #2–#8 domains, **#9 Phase 0** (active) |
 | Generator (`generate.py`) | **Built** (#13) — resolves, renders, validates, emits 5 artifacts. 22 tests |
-| ODP catalog (`odp/catalog.yaml`) | **29 ODPs**, two evidence-only, one not Region-portable — every `oscal_param_id` now checked for existence against the vendored NIST index |
+| ODP catalog (`odp/catalog.yaml`) | **36 ODPs**, two evidence-only, one not Region-portable, seven governance-only — every `oscal_param_id` now checked for existence against the vendored NIST index |
 | Rule catalogs (`rules/<domain>.yaml`) | **2 / 6** — `iam.yaml` (7 rules, partial; #2 open) and `net.yaml` (18 rules, #3). 25 rules total |
 | Guard policies (`guard/`) | **2** — KMS rotation period and the ELB TLS floor. Values bake at generation time |
 | Overlays (`overlays/`) | **3** — `vanilla.yaml` (moderate), `vanilla-low.yaml`, `vanilla-high.yaml`. All three generate; Low records 2 exclusions |
