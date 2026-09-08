@@ -1,0 +1,95 @@
+# AWS Config resource type -> AWS service, EXPLICITLY.
+#
+# ---------------------------------------------------------------------------
+# WHY THIS IS NOT DERIVED FROM THE RESOURCE-TYPE STRING
+# ---------------------------------------------------------------------------
+# The obvious approach is to split `AWS::S3::Bucket` and look up `s3`. It
+# produces wrong answers, and the wrongness is silent.
+#
+#   AWS::RDS::DBCluster  ->  DocDB
+#
+# DocumentDB and Neptune both share the `rds` ARN namespace, so a naive match
+# resolves an RDS resource to DocumentDB. A wrong service means a wrong
+# availability class and a wrong Region list, which means a pack scoped to
+# Regions where it should not be, or excluded from Regions where it should.
+#
+# Four cases here are genuinely ambiguous and none of them is guessable:
+#
+#   AWS::RDS::*                     RDS, not DocDB or Neptune
+#   AWS::ApiGateway::Stage          API Gateway, not ApiGatewayV2
+#   AWS::ElasticLoadBalancing*      v1 and v2 are separate service entries
+#   AWS::SageMaker::*               SageMaker, not SageMaker Runtime
+#
+# `tools/lint_packs.py` fails when a resource type used by any rule has no entry
+# here, so a new rule cannot quietly arrive unmapped.
+#
+# Service names are the `service-id` values in
+# vendor/aws-services/aws-service-availability.json.
+
+version: 1
+
+# Not a service resource. Account-level rules evaluate once per account and are
+# never Region- or service-scoped, so they are exempt rather than mapped.
+account_level:
+  - AWS::::Account
+
+map:
+  AWS::ACM::Certificate: ACM
+  AWS::ApiGateway::Stage: API Gateway
+  AWS::AutoScaling::AutoScalingGroup: Auto Scaling
+  AWS::AutoScaling::LaunchConfiguration: Auto Scaling
+  AWS::Backup::BackupPlan: Backup
+  AWS::Backup::BackupVault: Backup
+  AWS::Backup::RecoveryPoint: Backup
+  AWS::CloudFront::Distribution: CloudFront
+  AWS::CloudTrail::Trail: CloudTrail
+  AWS::CloudWatch::Alarm: CloudWatch
+  AWS::CodeBuild::Project: CodeBuild
+  AWS::DMS::ReplicationInstance: Database Migration Service
+  AWS::DynamoDB::Table: DynamoDB
+  AWS::EC2::Instance: EC2
+  AWS::EC2::RouteTable: EC2
+  AWS::EC2::SecurityGroup: EC2
+  AWS::EC2::Subnet: EC2
+  AWS::EC2::VPC: EC2
+  AWS::EC2::VPNConnection: EC2
+  AWS::EC2::Volume: EC2
+  AWS::ECR::Repository: ECR
+  AWS::ECS::TaskDefinition: ECS
+  AWS::EFS::FileSystem: EFS
+  AWS::ElastiCache::ReplicationGroup: ElastiCache
+  AWS::ElasticBeanstalk::Environment: Elastic Beanstalk
+  # v1 and v2 are distinct service entries upstream, and distinct resource types
+  # here. Collapsing them would scope classic-ELB rules by v2's availability.
+  AWS::ElasticLoadBalancing::LoadBalancer: Elastic Load Balancing
+  AWS::ElasticLoadBalancingV2::Listener: Elastic Load Balancing v2
+  AWS::ElasticLoadBalancingV2::LoadBalancer: Elastic Load Balancing v2
+  AWS::Elasticsearch::Domain: Elasticsearch Service
+  AWS::EMR::Cluster: EMR
+  AWS::IAM::Group: IAM
+  AWS::IAM::Policy: IAM
+  AWS::IAM::User: IAM
+  AWS::Kinesis::Stream: Kinesis
+  AWS::KMS::Key: KMS
+  AWS::Lambda::Function: Lambda
+  AWS::Logs::LogGroup: CloudWatch Logs
+  AWS::OpenSearch::Domain: OpenSearch
+  # RDS, NOT DocDB or Neptune. All three share the `rds` ARN namespace and a
+  # naive lookup resolves to DocDB.
+  AWS::RDS::DBCluster: RDS
+  AWS::RDS::DBInstance: RDS
+  AWS::RDS::DBSnapshot: RDS
+  AWS::Redshift::Cluster: Redshift
+  AWS::S3::AccountPublicAccessBlock: S3
+  AWS::S3::Bucket: S3
+  # SageMaker, not SageMaker Runtime — the Runtime entry publishes no Regions at
+  # all, so mapping to it would scope every SageMaker rule out of everywhere.
+  AWS::SageMaker::EndpointConfig: SageMaker
+  AWS::SageMaker::NotebookInstance: SageMaker
+  AWS::SecretsManager::Secret: Secrets Manager
+  AWS::SNS::Topic: SNS
+  AWS::SQS::Queue: SQS
+  AWS::SSM::AssociationCompliance: SSM
+  AWS::SSM::Document: SSM
+  AWS::SSM::PatchCompliance: SSM
+  AWS::WAFv2::WebACL: WAFV2

@@ -594,6 +594,49 @@ def check_guard_policies(root: Path, rep: Report) -> None:
         rep.ok(f"Guard token substitution: {len(policies)} policy file(s), {n} token(s) bound")
 
 
+def check_resource_type_map(root: Path, rep: Report) -> None:
+    """Every resource type a rule uses must have an EXPLICIT service mapping.
+
+    Deriving the service from the type string resolves `AWS::RDS::DBCluster` to
+    DocDB, because DocumentDB shares the `rds` ARN namespace. A wrong service
+    means a wrong Region scope, which is silent: the pack deploys and the rule
+    reports INSUFFICIENT_DATA forever.
+    """
+    idx = root / "vendor/aws-services/aws-service-availability.json"
+    mp = root / "vendor/aws-services/resource-type-map.yaml"
+    rules_dir = root / "rules"
+    if not mp.exists() or not idx.exists():
+        rep.defer("Resource-type service map", "vendor/aws-services/ is not present yet")
+        return
+    m = yaml.safe_load(mp.read_text())
+    import json as _json
+    services = set(_json.loads(idx.read_text())["services"])
+    mapped = set(m.get("map") or {}) | set(m.get("account_level") or [])
+
+    used: set[str] = set()
+    for rf in sorted(rules_dir.glob("*.yaml")):
+        try:
+            doc = yaml.safe_load(rf.read_text()) or {}
+        except yaml.YAMLError:
+            continue
+        for rule in (doc.get("rules") or {}).values():
+            used |= set(rule.get("resource_types") or [])
+
+    bad = 0
+    if unmapped := used - mapped:
+        rep.fail(
+            f"resource type(s) {sorted(unmapped)} are used by a rule but have no entry "
+            f"in {mp.name}. Add them explicitly; deriving the service from the type "
+            f"string resolves AWS::RDS::* to DocDB.")
+        bad += 1
+    if ghost := {s for s in (m.get("map") or {}).values() if s not in services}:
+        rep.fail(f"{mp.name} maps to service(s) {sorted(ghost)} that the availability "
+                 f"index does not contain.")
+        bad += 1
+    if not bad:
+        rep.ok(f"Resource-type service map: {len(used)} type(s) mapped")
+
+
 def check_readme_coverage(root: Path, rep: Report) -> None:
     """README's coverage table must match the catalogs.
 
@@ -709,6 +752,7 @@ CHECKS = (
     check_guard_policies,
     check_parameter_bindings,
     check_readme_coverage,
+    check_resource_type_map,
     check_generated_packs,
 )
 
