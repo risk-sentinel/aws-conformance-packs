@@ -23,6 +23,15 @@ labels: pack, domain:rpl
 `s3-bucket-versioning-enabled`, `s3-bucket-replication-enabled`,
 `elb-cross-zone-load-balancing-enabled`, `autoscaling-multiple-az`
 
+**Reconciled from AWS's published pack (2026-09-08).** These are rules AWS's own
+NIST 800-53 Rev 5 conformance pack maps to this domain that the original research
+for this issue did not name. None is dropped for being irrelevant to a particular
+boundary — that judgement belongs to the boundary, not the catalog, and is made at
+pack-composition time with its reason recorded (see #20). Assignment rationale in
+`docs/dev/rule-reconciliation.yaml`.
+
+`autoscaling-group-elb-healthcheck-required`, `dynamodb-autoscaling-enabled`, `dynamodb-throughput-limit-check`, `elasticache-redis-cluster-automatic-backup-check`, `elb-deletion-protection-enabled`, `lambda-dlq-check`, `rds-cluster-multi-az-enabled`, `redshift-backup-enabled`, `s3-version-lifecycle-policy-check`
+
 ## ODPs in scope
 
 | ODP | Control | Binds to |

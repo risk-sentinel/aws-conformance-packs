@@ -1,0 +1,113 @@
+# Reconciliation of AWS's published NIST 800-53 Rev 5 pack against our domain
+# issues, 2026-09-08.
+#
+# AWS's pack carries 130 rules. Our six domain issues named 97 candidates, and 58
+# of AWS's rules appeared in none of them -- the issues were written from research
+# rather than by diffing AWS's own mapping.
+#
+# Every one of the 58 is assigned to a domain here. NONE is dropped for being
+# "not relevant to our boundary": that judgement belongs to the boundary, not to
+# the catalog. A rule for a service a given boundary does not deploy is excluded
+# at pack-composition time WITH ITS REASON RECORDED (see #20), which is a
+# different and better thing than never having modelled it.
+#
+# Where a rule could sit in two domains the tie-break is what the rule MEASURES,
+# not which service it belongs to:
+#   - "is it encrypted / what key"      -> CRYPTO
+#   - "is it publicly reachable"        -> NET
+#   - "is it logged / monitored"        -> LOG
+#   - "who can assume or authenticate"  -> IAM
+#   - "is it patched / configured"      -> VCM
+#   - "does it survive failure"         -> RPL
+
+assignments:
+
+  iam:
+    - account-part-of-organizations          # org membership gates SCP-based access control
+    - iam-no-inline-policy-check
+    - iam-user-group-membership-check
+    - ec2-instance-profile-attached          # instance identity, not networking
+    - rds-instance-default-admin-check       # default credential
+    - redshift-default-admin-check
+    - codebuild-project-envvar-awscred-check # static creds in build env
+
+  net:
+    - ec2-instances-in-vpc
+    - no-unrestricted-route-to-igw
+    - autoscaling-launch-config-public-ip-disabled
+    - lambda-function-public-access-prohibited
+    - rds-snapshots-public-prohibited
+    - ebs-snapshot-public-restorable-check
+    - s3-bucket-level-public-access-prohibited
+    - elasticsearch-in-vpc-only
+    - opensearch-in-vpc-only
+    - emr-master-no-public-ip
+    - sagemaker-notebook-no-direct-internet-access
+    - dms-replication-not-public
+    - redshift-enhanced-vpc-routing-enabled
+    - ssm-document-not-public
+    - vpc-vpn-2-tunnels-up
+    - elb-acm-certificate-required           # classic ELB; elbv2 variant already built
+
+  crypto:
+    - api-gw-cache-enabled-and-encrypted
+    - api-gw-ssl-enabled
+    - codebuild-project-artifact-encryption
+    - elasticsearch-encrypted-at-rest
+    - opensearch-encrypted-at-rest
+    - opensearch-https-required
+    - opensearch-node-to-node-encryption-check
+    - kinesis-stream-encrypted
+    - redshift-cluster-kms-enabled
+    - sagemaker-endpoint-configuration-kms-key-configured
+    - sagemaker-notebook-instance-kms-key-configured
+    - secretsmanager-using-cmk
+
+  log:
+    - cloudtrail-enabled
+    - api-gw-execution-logging-enabled
+    - elasticsearch-logs-to-cloudwatch
+    - opensearch-logs-to-cloudwatch
+    - cloudwatch-alarm-action-check
+    - rds-enhanced-monitoring-enabled
+    - wafv2-logging-enabled
+    - s3-event-notifications-enabled
+    - beanstalk-enhanced-health-reporting-enabled
+
+  vcm:
+    - ecs-containers-readonly-access
+    - ecs-task-definition-user-for-host-mode-check
+    - elastic-beanstalk-managed-updates-enabled
+    - redshift-cluster-maintenancesettings-check
+    - ebs-optimized-instance
+
+  rpl:
+    - dynamodb-autoscaling-enabled
+    - dynamodb-throughput-limit-check
+    - autoscaling-group-elb-healthcheck-required
+    - rds-cluster-multi-az-enabled
+    - elasticache-redis-cluster-automatic-backup-check
+    - redshift-backup-enabled
+    - s3-version-lifecycle-policy-check
+    - lambda-dlq-check
+    - elb-deletion-protection-enabled
+
+# Judgement calls worth a reviewer's attention, rather than buried.
+notes:
+  ebs-optimized-instance: >-
+    The weakest security case of the 58 -- EBS optimization is a performance
+    setting. AWS maps it under availability. Assigned to VCM as a configuration
+    baseline item rather than dropped, so the decision is visible; a reviewer may
+    reasonably move it to RPL or mark it coverage `supporting` only.
+  ssm-document-not-public: >-
+    Could sit in VCM as an SSM concern. Assigned to NET because what it MEASURES
+    is public reachability of an artifact, which is the NET tie-break.
+  beanstalk-enhanced-health-reporting-enabled: >-
+    Health reporting is monitoring, so LOG rather than VCM, even though Beanstalk
+    otherwise sits with configuration management.
+  secretsmanager-using-cmk: >-
+    CRYPTO, not IAM. The rule measures which key encrypts the secret, not who may
+    read it.
+  account-part-of-organizations: >-
+    Arguably GOV. Assigned to IAM because org membership is what makes SCPs
+    enforceable, and SCP-based restriction is an access-control mechanism.

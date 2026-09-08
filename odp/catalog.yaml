@@ -246,3 +246,29 @@ odps:
     type: integer
     constraint: { min: 1, max: 365 }
     default: 365
+
+  # ===========================================================================
+  # ac-6.1 — Authorize Access to Security Functions
+  # ---------------------------------------------------------------------------
+  # ac-06.01_odp.05 is "security-relevant information for authorized access".
+  # KMS actions over ciphertext are exactly that. Note ac-6 ITSELF carries no
+  # OSCAL parameters at all -- the enhancement is where the ODP lives.
+  # ===========================================================================
+
+  blocked_kms_action_patterns:
+    description: >-
+      KMS action patterns that an IAM policy must not grant, as the deny-list side
+      of least privilege for key usage.
+    control: ac-6.1
+    oscal_param_id: ac-06.01_odp.05
+    oscal_alt_id: ac-6.1_prm_5
+    oscal_label: security-relevant information
+    baselines: [moderate, high]
+    type: list
+    item_type: string
+    # Our cap, not an AWS one: the parameter is a single comma-separated string
+    # and a long list bloats the template toward the inline size budget.
+    constraint: { max_items: 24 }
+    # kms:Decrypt and kms:ReEncryptFrom are the two that let a principal read
+    # ciphertext outright, which is why they are the default deny.
+    default: ["kms:Decrypt", "kms:ReEncryptFrom"]

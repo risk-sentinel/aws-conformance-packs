@@ -360,3 +360,220 @@ rules:
       Association only. CloudFront is a GLOBAL resource type recorded in one
       Region; in every other Region this reports INSUFFICIENT_DATA rather than
       failing.
+
+  ec2-instances-in-vpc:
+    source: managed
+    identifier: INSTANCES_IN_VPC
+    description: >-
+      EC2 instances are launched inside a VPC rather than EC2-Classic.
+    resource_types: [AWS::EC2::Instance]
+    controls:
+      nist_800_53_r5: [sc-7, sc-7.5]
+      ksi: [KSI-CNA-ULN, KSI-CNA-MAT]
+    coverage: full
+    ipv6_evaluated: true
+
+  no-unrestricted-route-to-igw:
+    source: managed
+    identifier: NO_UNRESTRICTED_ROUTE_TO_IGW
+    description: >-
+      Route tables do not carry an unrestricted (0.0.0.0/0) route to an internet gateway.
+    resource_types: [AWS::EC2::RouteTable]
+    controls:
+      nist_800_53_r5: [sc-7, ac-4]
+      ksi: [KSI-CNA-ULN, KSI-IAM-ELP]
+    coverage: partial
+    ipv6_evaluated: false
+    coverage_note: >-
+      Evaluates the IPv4 default route only; an unrestricted ::/0 route to an
+      egress-only or internet gateway is not seen. A route table is also not
+      reachability -- a permissive route with no attached workload fails, and a
+      reachable workload on a narrower route passes.
+
+  autoscaling-launch-config-public-ip-disabled:
+    source: managed
+    identifier: AUTOSCALING_LAUNCH_CONFIG_PUBLIC_IP_DISABLED
+    description: >-
+      Auto Scaling launch configurations do not assign public IP addresses.
+    resource_types: [AWS::AutoScaling::LaunchConfiguration]
+    controls:
+      nist_800_53_r5: [sc-7, sc-7.5]
+      ksi: [KSI-CNA-ULN, KSI-CNA-MAT]
+    coverage: partial
+    ipv6_evaluated: false
+    coverage_note: >-
+      Covers launch CONFIGURATIONS only. Launch templates, which are what AWS now
+      recommends and most estates use, are not evaluated by this rule at all -- so a
+      PASS can mean 'no launch configurations exist', not 'no public IPs are
+      assigned'.
+
+  lambda-function-public-access-prohibited:
+    source: managed
+    identifier: LAMBDA_FUNCTION_PUBLIC_ACCESS_PROHIBITED
+    description: >-
+      Lambda function resource policies do not grant public access.
+    resource_types: [AWS::Lambda::Function]
+    controls:
+      nist_800_53_r5: [ac-3, sc-7]
+      ksi: [KSI-IAM-ELP, KSI-CNA-ULN]
+    coverage: full
+    ipv6_evaluated: true
+
+  rds-snapshots-public-prohibited:
+    source: managed
+    identifier: RDS_SNAPSHOTS_PUBLIC_PROHIBITED
+    description: >-
+      RDS snapshots are not publicly restorable.
+    resource_types: [AWS::RDS::DBSnapshot]
+    controls:
+      nist_800_53_r5: [ac-3, sc-7]
+      ksi: [KSI-IAM-ELP, KSI-CNA-ULN]
+    coverage: full
+    ipv6_evaluated: true
+
+  ebs-snapshot-public-restorable-check:
+    source: managed
+    identifier: EBS_SNAPSHOT_PUBLIC_RESTORABLE_CHECK
+    description: >-
+      EBS snapshots are not publicly restorable.
+    resource_types: [AWS::EC2::Volume]
+    controls:
+      nist_800_53_r5: [ac-3, sc-7]
+      ksi: [KSI-IAM-ELP, KSI-CNA-ULN]
+    coverage: full
+    ipv6_evaluated: true
+
+  s3-bucket-level-public-access-prohibited:
+    source: managed
+    identifier: S3_BUCKET_LEVEL_PUBLIC_ACCESS_PROHIBITED
+    description: >-
+      Bucket-level Block Public Access is enabled on every bucket.
+    resource_types: [AWS::S3::Bucket]
+    controls:
+      nist_800_53_r5: [ac-3, sc-7]
+      ksi: [KSI-IAM-ELP, KSI-CNA-ULN]
+    coverage: full
+    ipv6_evaluated: true
+
+  elasticsearch-in-vpc-only:
+    source: managed
+    identifier: ELASTICSEARCH_IN_VPC_ONLY
+    description: >-
+      Elasticsearch domains are deployed inside a VPC.
+    resource_types: [AWS::Elasticsearch::Domain]
+    controls:
+      nist_800_53_r5: [sc-7, sc-7.5]
+      ksi: [KSI-CNA-ULN, KSI-CNA-MAT]
+    coverage: full
+    ipv6_evaluated: true
+
+  opensearch-in-vpc-only:
+    source: managed
+    identifier: OPENSEARCH_IN_VPC_ONLY
+    description: >-
+      OpenSearch domains are deployed inside a VPC.
+    resource_types: [AWS::OpenSearch::Domain]
+    controls:
+      nist_800_53_r5: [sc-7, sc-7.5]
+      ksi: [KSI-CNA-ULN, KSI-CNA-MAT]
+    coverage: full
+    ipv6_evaluated: true
+
+  emr-master-no-public-ip:
+    source: managed
+    identifier: EMR_MASTER_NO_PUBLIC_IP
+    description: >-
+      EMR cluster master nodes do not have a public IP address.
+    resource_types: [AWS::EMR::Cluster]
+    controls:
+      nist_800_53_r5: [sc-7, sc-7.5]
+      ksi: [KSI-CNA-ULN, KSI-CNA-MAT]
+    coverage: partial
+    ipv6_evaluated: false
+    coverage_note: >-
+      Evaluates the master node's public IPv4 association. Core and task nodes are out
+      of scope for this rule.
+
+  sagemaker-notebook-no-direct-internet-access:
+    source: managed
+    identifier: SAGEMAKER_NOTEBOOK_NO_DIRECT_INTERNET_ACCESS
+    description: >-
+      SageMaker notebook instances do not have direct internet access.
+    resource_types: [AWS::SageMaker::NotebookInstance]
+    controls:
+      nist_800_53_r5: [sc-7, sc-7.5]
+      ksi: [KSI-CNA-ULN, KSI-CNA-MAT]
+    coverage: full
+    ipv6_evaluated: true
+
+  dms-replication-not-public:
+    source: managed
+    identifier: DMS_REPLICATION_NOT_PUBLIC
+    description: >-
+      DMS replication instances are not publicly accessible.
+    resource_types: [AWS::DMS::ReplicationInstance]
+    controls:
+      nist_800_53_r5: [sc-7, ac-4]
+      ksi: [KSI-CNA-ULN, KSI-IAM-ELP]
+    coverage: full
+    ipv6_evaluated: true
+
+  redshift-enhanced-vpc-routing-enabled:
+    source: managed
+    identifier: REDSHIFT_ENHANCED_VPC_ROUTING_ENABLED
+    description: >-
+      Redshift clusters route COPY and UNLOAD traffic through the VPC.
+    resource_types: [AWS::Redshift::Cluster]
+    controls:
+      nist_800_53_r5: [sc-7, ac-4]
+      ksi: [KSI-CNA-ULN, KSI-IAM-ELP]
+    coverage: supporting
+    ipv6_evaluated: true
+    coverage_note: >-
+      Forces traffic through the VPC so it is subject to boundary controls. It does
+      not itself constrain where that traffic may go -- the security groups and
+      endpoints do.
+
+  ssm-document-not-public:
+    source: managed
+    identifier: SSM_DOCUMENT_NOT_PUBLIC
+    description: >-
+      Systems Manager documents owned by the account are not shared publicly.
+    resource_types: [AWS::SSM::Document]
+    controls:
+      nist_800_53_r5: [ac-3, sc-7]
+      ksi: [KSI-IAM-ELP, KSI-CNA-ULN]
+    coverage: full
+    ipv6_evaluated: true
+
+  vpc-vpn-2-tunnels-up:
+    source: managed
+    identifier: VPC_VPN_2_TUNNELS_UP
+    description: >-
+      Site-to-site VPN connections have both tunnels up.
+    resource_types: [AWS::EC2::VPNConnection]
+    controls:
+      nist_800_53_r5: [sc-7]
+      ksi: [KSI-CNA-ULN]
+    coverage: supporting
+    ipv6_evaluated: true
+    coverage_note: >-
+      A tunnel-state check, so it is availability evidence for the boundary rather
+      than a boundary control. A single-tunnel VPN still enforces the same policy
+      while carrying no redundancy.
+
+  elb-acm-certificate-required:
+    source: managed
+    identifier: ELB_ACM_CERTIFICATE_REQUIRED
+    description: >-
+      Classic load balancers use ACM-managed certificates.
+    resource_types: [AWS::ElasticLoadBalancing::LoadBalancer]
+    controls:
+      nist_800_53_r5: [sc-7]
+      ksi: [KSI-CNA-ULN]
+    coverage: supporting
+    ipv6_evaluated: true
+    coverage_note: >-
+      Certificate provenance on CLASSIC load balancers only; the elbv2 equivalent
+      covers application and network load balancers. Says nothing about the TLS policy
+      in force.

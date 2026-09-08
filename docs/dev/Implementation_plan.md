@@ -8,19 +8,19 @@ per-organization ODP overlay. It is a *generator and a deployment pattern*, not 
 profile: there are no InSpec controls here. Evidence leaves this repo as Config
 rule evaluations, which `risk-sentinel/aws-config` converts to HDF.
 
-**Last updated:** 2026-09-08 (**Phase 2 begun: NET (#3) is the first full domain
-catalog.** 18 rules — every candidate the issue names — and it forced two capabilities the generator lacked. A `list`
-ODP type, because `RESTRICTED_INCOMING_TRAFFIC` takes `blockedPort1..blockedPort5`
-as five discrete parameters — a sixth port does not error at deploy time, it is
-simply never rendered, so it goes unchecked while appearing configured. Both the
-catalog cap and a render-time slot check now refuse it, verified to fire
-independently. And per-rule `ipv6_evaluated`, rendered into the deployed
-description, because several boundary rules evaluate `0.0.0.0/0` and not `::/0`
-and an operator cannot tell from a PASS. The KSI intersection check earned itself
-immediately: it caught `elbv2-acm-certificate-required` claiming `KSI-CNA-MAT`,
-which claims `sc-7.3/7.4/7.5` and not bare `sc-7`. Prior: #15 vendored FedRAMP and
-NIST provenance and fixed the ungeneratable Low baseline. Next: CRYPTO, LOG, VCM,
-RPL, and completing IAM.)
+**Last updated:** 2026-09-08 (**IAM and NET complete; 59 rules, 88% verified against
+AWS's own pack.** Reconciled our domain issues against AWS's published NIST r5 pack:
+it carries 130 rules and **58 appeared in none of our six issues**, because the issues
+were written from research rather than by diffing AWS's mapping. All 58 are now
+assigned to a domain in `docs/dev/rule-reconciliation.yaml` — none dropped for being
+irrelevant to a boundary, since that judgement belongs to the boundary (#20), not the
+catalog. Candidates went 97 -> 157, every domain still well under the 130 cap. IAM is
+25 rules and NET 34. The candidate-coverage test now applies to **every** domain, so a
+shortfall fails the build instead of being absorbed into a status table. Two guard
+classes earned themselves again: the KSI crosswalk check caught five rules assigning
+`KSI-IAM-AAM` to bare `ac-2` when AAM claims only the ac-2 *enhancements*, and a new
+OSCAL-parameter-existence check caught an invented `ac-06_odp` — `ac-6` publishes no
+parameters at all. Next: CRYPTO, LOG, VCM, RPL.)
 
 ---
 
@@ -110,7 +110,7 @@ checklist.
 |---|---|
 | Tracking issues | **9 filed** — #1 epic, #2–#8 domains, **#9 Phase 0** (active) |
 | Generator (`generate.py`) | **Built** (#13) — resolves, renders, validates, emits 5 artifacts. 22 tests |
-| ODP catalog (`odp/catalog.yaml`) | **11 ODPs** — IAM (7) + NET (4), including the first `list` type with a hard slot cap |
+| ODP catalog (`odp/catalog.yaml`) | **12 ODPs** — every `oscal_param_id` now checked for existence against the vendored NIST index |
 | Rule catalogs (`rules/<domain>.yaml`) | **2 / 6** — `iam.yaml` (7 rules, partial; #2 open) and `net.yaml` (18 rules, #3). 25 rules total |
 | Guard policies (`guard/`) | **Not started** — first needed by CRYPTO (#4) |
 | Overlays (`overlays/`) | **3** — `vanilla.yaml` (moderate), `vanilla-low.yaml`, `vanilla-high.yaml`. All three generate; Low records 2 exclusions |

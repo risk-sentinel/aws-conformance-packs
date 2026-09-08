@@ -46,6 +46,15 @@ MAX_S3_TEMPLATE_BYTES = 300 * 1024
 SKIP_DIRS = {".git", "out", "vendor", "node_modules", ".github/actions"}
 
 
+def _nist_index(root: Path):
+    """The vendored NIST parameter index, or None if it is not present."""
+    p = root / "vendor/nist/nist-800-53r5-params.json"
+    if not p.exists():
+        return None
+    import json
+    return json.loads(p.read_text())["controls"]
+
+
 @dataclass
 class Report:
     passed: list[str] = field(default_factory=list)
@@ -271,6 +280,28 @@ def check_odp_catalog(root: Path, rep: Report) -> None:
             continue
 
         pid = str(odp["oscal_param_id"])
+        # Shape is not existence. An id can be perfectly well-formed and refer to
+        # nothing -- ac-06_odp looks exactly like a real parameter and ac-6 has no
+        # parameters at all. A non-existent id joins to nothing while appearing
+        # entirely correct, which is the whole failure mode this catalog exists to
+        # prevent, so it is checked against the vendored NIST index.
+        nist_index = _nist_index(root)
+        if nist_index is not None:
+            ctrl = nist_index.get(str(odp.get("control")))
+            if ctrl is None:
+                rep.fail(
+                    f"{where}: control {odp.get('control')!r} resolves in no Rev 5 "
+                    f"baseline, so nothing bound to it can be claimed as coverage."
+                )
+                bad += 1
+            elif pid not in ctrl["params"] and str(odp.get("oscal_alt_id")) not in {
+                    p.get("alt_id") for p in ctrl["params"].values()}:
+                rep.fail(
+                    f"{where}: oscal_param_id {pid!r} is not a parameter of "
+                    f"{odp.get('control')}. That control publishes "
+                    f"{sorted(ctrl['params']) or 'no parameters at all'}."
+                )
+                bad += 1
         if not OSCAL_PARAM_RE.match(pid):
             rep.fail(
                 f"{where}: oscal_param_id {pid!r} is not a Rev 5 parameter id. "

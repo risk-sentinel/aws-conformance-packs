@@ -23,6 +23,15 @@ labels: pack, domain:crypto
 `acm-certificate-expiration-check`, `elb-tls-https-listeners-only`,
 `redshift-require-tls-ssl`, `elasticsearch-node-to-node-encryption-check`
 
+**Reconciled from AWS's published pack (2026-09-08).** These are rules AWS's own
+NIST 800-53 Rev 5 conformance pack maps to this domain that the original research
+for this issue did not name. None is dropped for being irrelevant to a particular
+boundary — that judgement belongs to the boundary, not the catalog, and is made at
+pack-composition time with its reason recorded (see #20). Assignment rationale in
+`docs/dev/rule-reconciliation.yaml`.
+
+`api-gw-cache-enabled-and-encrypted`, `api-gw-ssl-enabled`, `codebuild-project-artifact-encryption`, `elasticsearch-encrypted-at-rest`, `kinesis-stream-encrypted`, `opensearch-encrypted-at-rest`, `opensearch-https-required`, `opensearch-node-to-node-encryption-check`, `redshift-cluster-kms-enabled`, `sagemaker-endpoint-configuration-kms-key-configured`, `sagemaker-notebook-instance-kms-key-configured`, `secretsmanager-using-cmk`
+
 ## ODPs in scope
 
 | ODP | Control | Binds to |

@@ -133,8 +133,13 @@ def test_odp_outside_target_baseline_is_excluded_and_recorded():
     """
     t, _, excluded = generate.render_pack(cat(), rl(), generate.resolve(cat(), ov(), None), "low")
     names = {e["rule"] for e in excluded}
-    assert names == {"iam-user-unused-credentials-check", "secretsmanager-secret-unused"}
+    # ac-2.3 is absent from Low, so both rules binding it must go. Asserted as a
+    # subset rather than an exact set: more rules legitimately join this list as
+    # the catalog grows (ac-6.1 is Moderate+ too), and an exact-equality assertion
+    # would fail on correct work.
+    assert {"iam-user-unused-credentials-check", "secretsmanager-secret-unused"} <= names
     assert all("low baseline" in e["reason"] for e in excluded)
+    assert all(e["detail"] and e["controls"] for e in excluded), "an exclusion must name what it cost"
     assert not any(n in t["Resources"] for n in ("IamUserUnusedCredentialsCheck",
                                                  "SecretsmanagerSecretUnused"))
     # ...and the rules the Low baseline DOES ask for are still there.
@@ -395,13 +400,37 @@ def test_waf_rules_are_supporting_not_a_dos_claim():
 
 
 def test_every_candidate_rule_named_in_the_issue_is_built():
-    """#3 named 18 candidates. The first pass built 8 and closed the issue, which
-    let the plan table redefine the target instead of meeting it."""
+    """Applies to EVERY domain with a rule catalog, not just NET.
+
+    The first NET pass built 8 of 18 candidates and closed the issue, which let a
+    status table redefine the target rather than record a shortfall. A domain with
+    no catalog yet is not a failure -- it has not been started. A domain WITH a
+    catalog that does not cover its issue is.
+    """
     import re
-    sec = (ROOT / "issues/02-network-boundary.md").read_text() \
-        .split("## Candidate managed rules")[1].split("##")[0]
-    cands = {c for c in re.findall(r"`([a-z0-9]+(?:-[a-z0-9]+)+)`", sec) if not c.isupper()}
-    assert cands - set(NET["rules"]) == set()
+    domains = {
+        "iam": "01-identity-access", "net": "02-network-boundary",
+        "crypto": "03-crypto-data-protection", "log": "04-logging-monitoring-audit",
+        "vcm": "05-vuln-config-management", "rpl": "06-resilience-recovery",
+    }
+    started, shortfalls = [], {}
+    for dom, issue in domains.items():
+        cat = ROOT / f"rules/{dom}.yaml"
+        if not cat.exists():
+            continue
+        started.append(dom)
+        sec = (ROOT / f"issues/{issue}.md").read_text() \
+            .split("## Candidate managed rules")[1].split("\n## ")[0]
+        cands = {c for c in re.findall(r"`([a-z0-9]+(?:-[a-z0-9]+)+)`", sec) if not c.isupper()}
+        built = set(yaml.safe_load(cat.read_text())["rules"])
+        if missing := cands - built:
+            shortfalls[dom] = sorted(missing)
+    assert started, "no rule catalogs found at all"
+    assert not shortfalls, (
+        "domain catalogs do not cover every candidate their issue names: "
+        + "; ".join(f"{d} missing {len(m)} ({', '.join(m[:5])}...)"
+                    for d, m in shortfalls.items())
+    )
 
 
 # --- verification against AWS's own published pack ---------------------------

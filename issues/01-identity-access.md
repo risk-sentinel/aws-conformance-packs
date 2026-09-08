@@ -24,6 +24,15 @@ labels: pack, domain:iam
 `secretsmanager-rotation-enabled-check`, `secretsmanager-scheduled-rotation-success-check`,
 `secretsmanager-secret-periodic-rotation`, `secretsmanager-secret-unused`
 
+**Reconciled from AWS's published pack (2026-09-08).** These are rules AWS's own
+NIST 800-53 Rev 5 conformance pack maps to this domain that the original research
+for this issue did not name. None is dropped for being irrelevant to a particular
+boundary — that judgement belongs to the boundary, not the catalog, and is made at
+pack-composition time with its reason recorded (see #20). Assignment rationale in
+`docs/dev/rule-reconciliation.yaml`.
+
+`account-part-of-organizations`, `codebuild-project-envvar-awscred-check`, `ec2-instance-profile-attached`, `iam-no-inline-policy-check`, `iam-user-group-membership-check`, `rds-instance-default-admin-check`, `redshift-default-admin-check`
+
 ## ODPs in scope
 
 | ODP | Control | Binds to |
