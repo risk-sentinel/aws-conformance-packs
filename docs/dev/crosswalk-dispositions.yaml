@@ -1,0 +1,135 @@
+# Disposition of the 94 technical controls FedRAMP relates to KSIs our rules
+# already serve, but which our crosswalks did not claim. Issue #26.
+#
+# THE QUESTION ASKED OF EACH ONE
+# ------------------------------
+# Not "is this control related to what the rule does" — FedRAMP's KSI mapping
+# already says yes, and unioning it in would triple our reported coverage while
+# making the traceability report worthless.
+#
+# The question is: **does a named rule evaluate a resource attribute that bears
+# on what the control's STATEMENT requires?** Read from the statement, not the
+# title.
+#
+# claim      — a rule evidences part of it. Almost always `supporting`: the rule
+#              observes a precondition or an artifact, not the control's outcome.
+# no-signal  — AWS Config cannot observe it. Records what could.
+# gov        — a process or policy artifact. Routes to #8.
+
+version: 1
+reviewed: 2026-09-08
+source: FedRAMP KSI->800-53 crosswalk, fedramp-consolidated-rules 2026.07.14.01
+
+dispositions:
+
+  # ===== ACCESS CONTROL ======================================================
+  ac-17.1: { d: claim, rules: [cloud-trail-cloud-watch-logs-enabled, vpc-flow-logs-enabled], why: "Automated monitoring of remote access methods, to the extent those methods traverse recorded surfaces. Direct SSH and VPN sessions are not visible to either." }
+  ac-17.2: { d: claim, rules: [s3-bucket-ssl-requests-only, redshift-require-tls-ssl, opensearch-https-required], why: "Cryptographic protection of sessions to managed services. NOT remote access in the AC-17 sense — VPN and SSH sessions are invisible to Config." }
+  ac-17.3: { d: claim, rules: [internet-gateway-authorized-vpc-only, no-unrestricted-route-to-igw], why: "Routing through authorized network access control points is exactly what IGW authorization and route restriction evidence." }
+  ac-2.1:  { d: claim, rules: [account-part-of-organizations], why: "Organization membership is the automated mechanism that makes org-wide account management enforceable." }
+  ac-2.4:  { d: claim, rules: [cloudtrail-enabled, multi-region-cloudtrail-enabled], why: "CloudTrail records IAM account create/modify/enable/disable/remove API calls. The rule evidences the trail exists, not that anyone reviews it." }
+  ac-6.5:  { d: claim, rules: [iam-policy-no-statements-with-admin-access, iam-root-access-key-check], why: "Restricting privileged accounts. Customer-managed policies only — an attached AWS-managed AdministratorAccess is out of scope." }
+  ac-6.9:  { d: claim, rules: [cloudtrail-enabled, cloud-trail-cloud-watch-logs-enabled], why: "Privileged function execution appears in CloudTrail. Evidences capture, not review." }
+  ac-7:    { d: no-signal, why: "IAM has no console lockout threshold Config can read. Would need an IdP configuration producer." }
+  ac-12:   { d: no-signal, why: "Session termination timeout is not a resource attribute AWS Config observes." }
+  ac-2.2:  { d: no-signal, why: "Temporary and emergency accounts are not distinguishable from any other IAM user. iam-user-unused-credentials-check is adjacent but measures inactivity, not account class." }
+  ac-2.5:  { d: no-signal, why: "Inactivity logout is a session property, not a resource attribute." }
+  ac-2.13: { d: no-signal, why: "Disabling within a period OF DISCOVERY is a timing property of a process; Config sees state, not elapsed time since an event it cannot see." }
+  ac-6.2:  { d: no-signal, why: "Whether a user employs a non-privileged role for nonsecurity functions is a runtime behaviour, not configuration." }
+  ac-6.10: { d: no-signal, why: "Preventing execution of privileged functions is an OS-level control." }
+  ac-18.1: { d: no-signal, why: "No wireless surface exists in an AWS boundary." }
+  ac-18.3: { d: no-signal, why: "As ac-18.1." }
+  ac-14:   { d: gov, why: "A documented list of actions permitted without identification." }
+  ac-20:   { d: gov, why: "Trust relationships and agreements with other organizations." }
+  ac-20.1: { d: gov, why: "As ac-20 — an authorization decision, not a configuration." }
+  ac-5:    { d: gov, why: "Separation of duties is documented duties first; the IAM policies expressing it are downstream of a decision Config cannot see." }
+  ac-6.7:  { d: gov, why: "A privilege review performed on a schedule. The review is the control." }
+
+  # ===== IDENTIFICATION AND AUTHENTICATION ===================================
+  ia-2:    { d: claim, rules: [iam-user-mfa-enabled, mfa-enabled-for-iam-console-access], why: "Unique identification and authentication of organizational users, to the extent IAM users are the population — federated identities are invisible." }
+  ia-5.2:  { d: claim, rules: [acm-certificate-expiration-check, elbv2-acm-certificate-required], why: "Public-key authentication material lifecycle. ACM manages the certificate; it says nothing about private-key access authorization." }
+  ia-5.6:  { d: claim, rules: [secretsmanager-using-cmk, secretsmanager-secret-periodic-rotation, secretsmanager-secret-unused], why: "Protecting authenticators commensurate with sensitivity — Secrets Manager encryption and rotation is precisely this." }
+  ia-2.8:  { d: no-signal, why: "Replay resistance is an authentication protocol property." }
+  ia-3:    { d: no-signal, why: "Device identification before connection is not observable in resource configuration." }
+  ia-6:    { d: no-signal, why: "Authentication feedback obscuring is an interface behaviour." }
+  ia-7:    { d: no-signal, why: "FIPS-validated cryptographic module authentication is not exposed as a resource attribute." }
+  ia-8:    { d: no-signal, why: "Non-organizational user authentication happens in an external IdP." }
+  ia-11:   { d: no-signal, why: "Re-authentication triggers are a session property." }
+  ia-4:    { d: gov, why: "Identifier management is an authorization and lifecycle process." }
+  ia-4.4:  { d: gov, why: "Marking individuals by status is a directory attribute decision." }
+  ia-12:   { d: gov, why: "Identity proofing is a registration process." }
+  ia-12.2: { d: gov, why: "As ia-12." }
+  ia-12.3: { d: gov, why: "As ia-12." }
+  ia-12.5: { d: gov, why: "As ia-12." }
+
+  # ===== AUDIT ===============================================================
+  au-3:    { d: claim, rules: [cloudtrail-enabled, cloudtrail-security-trail-enabled], why: "CloudTrail record content is fixed by AWS and does establish type/when/where/source/outcome. The rule evidences the trail, not the record schema." }
+  au-3.1:  { d: claim, rules: [cloudtrail-s3-dataevents-enabled], why: "Data events are the additional audit information for object-level access." }
+  au-5:    { d: claim, rules: [cloudwatch-alarm-action-check], why: "An alarm with an action wired is the mechanism by which a logging failure could raise an alert. It does not evidence that anyone receives it." }
+  au-6.1:  { d: claim, rules: [securityhub-enabled, guardduty-enabled-centralized], why: "Automated integration of review and analysis. Enablement only — acting on findings is invisible." }
+  au-6.3:  { d: claim, rules: [cloud-trail-cloud-watch-logs-enabled, securityhub-enabled], why: "Correlation across repositories requires the repositories to converge; these evidence that convergence exists." }
+  au-7:    { d: claim, rules: [cloud-trail-cloud-watch-logs-enabled], why: "Delivery to CloudWatch Logs provides the on-demand reduction and search capability. Capability, not use." }
+  au-7.1:  { d: claim, rules: [cloud-trail-cloud-watch-logs-enabled], why: "As au-7." }
+  au-8:    { d: no-signal, why: "Timestamp generation and granularity are AWS platform properties with no configuration surface." }
+  au-9.4:  { d: gov, why: "Authorizing a subset of privileged users to manage audit logging is an IAM policy decision downstream of a documented authorization." }
+
+  # ===== ASSESSMENT AND CONNECTIONS ==========================================
+  ca-3:    { d: gov, why: "Approving and managing information exchange rests on agreements." }
+  ca-9:    { d: gov, why: "Authorizing internal connections is a documented decision; flow logs record traffic, not authorization." }
+
+  # ===== CONFIGURATION MANAGEMENT ============================================
+  cm-2.2:  { d: claim, rules: [ec2-managedinstance-association-compliance-status-check], why: "SSM associations are the automation maintaining baseline currency. Unmanaged instances are ABSENT from this rule, not failing." }
+  cm-7.2:  { d: claim, rules: [lambda-function-settings-check, ecs-containers-readonly-access], why: "Runtime allow-listing and a read-only root filesystem both constrain what may execute." }
+  cm-7.5:  { d: claim, rules: [approved-amis-by-tag, lambda-function-settings-check], why: "Allow-by-exception for authorized software. Both are inert with an empty allow-list, which is the common failure." }
+  cm-2.3:  { d: no-signal, why: "Retention of previous baseline configurations is what AWS Config itself does; a rule asserting it would be circular." }
+  cm-2.7:  { d: no-signal, why: "Devices issued to travellers are outside the cloud boundary." }
+  cm-8.1:  { d: no-signal, why: "Inventory update on install/removal is the recorder's own behaviour — circular, and asserted out of band." }
+  cm-8.3:  { d: no-signal, why: "Detecting unauthorized components needs a scanner comparing against an authorized inventory; Config records what exists, not what was authorized." }
+  cm-12:   { d: no-signal, why: "Information location requires data classification Config does not hold." }
+  cm-12.1: { d: no-signal, why: "As cm-12. Macie is the producer that could evidence it." }
+  cm-3:    { d: gov, why: "Change control is a process. CloudTrail shows a change happened, never that it was approved." }
+  cm-3.2:  { d: gov, why: "Pre-implementation testing is a pipeline property — the CI/CD producer." }
+  cm-4.2:  { d: gov, why: "Post-change control verification is an assessment activity." }
+  cm-5:    { d: gov, why: "Access restrictions for change rest on a documented approval model." }
+  cm-7.1:  { d: gov, why: "A periodic review of functions and ports is the control; the review is not a resource attribute." }
+  cm-9:    { d: gov, why: "A configuration management plan is a document." }
+
+  # ===== CONTINGENCY PLANNING ================================================
+  cp-9.8:  { d: claim, rules: [backup-recovery-point-encrypted], why: "Cryptographic protection of backup information. This is a direct match, not a proxy." }
+  cp-10.2: { d: claim, rules: [dynamodb-pitr-enabled], why: "Point-in-time recovery is transaction recovery for a transaction-based store." }
+  cp-6:    { d: claim, rules: [s3-bucket-replication-enabled], why: "Cross-region replication establishes an alternate storage location. It is not an alternate SITE with agreements, so supporting only." }
+  cp-2.3:  { d: gov, why: "Planning resumption within a period is a plan." }
+  cp-2.8:  { d: gov, why: "Identifying critical assets is a documented determination." }
+
+  # ===== SYSTEM AND COMMUNICATIONS PROTECTION ================================
+  sc-17:   { d: claim, rules: [acm-certificate-expiration-check, elbv2-acm-certificate-required, elb-acm-certificate-required], why: "ACM is an approved certificate service provider; these evidence certificates are obtained from it and kept current." }
+  sc-23:   { d: claim, rules: [elb-minimum-tls-policy, alb-http-to-https-redirection-check, s3-bucket-ssl-requests-only], why: "Session authenticity via TLS. Policy NAME only — negotiated ciphers are invisible." }
+  sc-39:   { d: claim, rules: [ecs-task-definition-user-for-host-mode-check, ecs-containers-readonly-access], why: "Container isolation properties are the closest observable expression of a separate execution domain." }
+  sc-7.3:  { d: claim, rules: [internet-gateway-authorized-vpc-only, ec2-instance-no-public-ip], why: "Limiting external network connections. Object-level, like all boundary rules." }
+  sc-7.4:  { d: claim, rules: [internet-gateway-authorized-vpc-only, restricted-common-ports], why: "Managed interface and traffic flow policy for external services." }
+  sc-2:    { d: no-signal, why: "Separating user from management functionality is an architecture property." }
+  sc-4:    { d: no-signal, why: "Information transfer via shared resources is a runtime memory and storage-reuse property." }
+  sc-10:   { d: no-signal, why: "Network disconnect after inactivity is a session property." }
+  sc-20:   { d: no-signal, why: "DNSSEC signing of authoritative zones — a Route 53 rule could evidence it and none is in our catalogs. Candidate for a future rule, not a crosswalk change." }
+  sc-21:   { d: no-signal, why: "Resolver-side DNSSEC validation, as sc-20." }
+  sc-22:   { d: no-signal, why: "Fault tolerance and internal/external role separation for name resolution is an architecture property." }
+  sc-7.7:  { d: no-signal, why: "Split tunneling is a client VPN configuration outside the boundary." }
+  sc-7.8:  { d: no-signal, why: "Authenticated proxy routing is not a resource attribute Config records." }
+
+  # ===== SYSTEM AND INFORMATION INTEGRITY ====================================
+  si-2.2:  { d: claim, rules: [ec2-managedinstance-patch-compliance-status-check], why: "Automated determination of update status is exactly what SSM patch compliance reports. Unmanaged instances are ABSENT, not failing." }
+  si-3:    { d: claim, rules: [guardduty-enabled-centralized], why: "GuardDuty is the malicious-code and threat detection mechanism at the account boundary. Enablement only." }
+  si-4.2:  { d: claim, rules: [guardduty-enabled-centralized, securityhub-enabled], why: "Automated tools supporting near real-time analysis. Enablement, not analysis." }
+  si-4.4:  { d: claim, rules: [vpc-flow-logs-enabled, guardduty-enabled-centralized], why: "Inbound and outbound traffic monitoring. Flow logs record; they do not determine criteria for unusual activity." }
+  si-4.5:  { d: claim, rules: [cloudwatch-alarm-action-check, guardduty-non-archived-findings], why: "System-generated alerts on indications of compromise. Whether anyone receives them is invisible." }
+  si-12:   { d: claim, rules: [cw-loggroup-retention-period-check, s3-version-lifecycle-policy-check], why: "Retention of information within and output from the system." }
+  si-10:   { d: no-signal, why: "Input validation is application logic. A WAF is a coarse proxy and claiming it here would overstate." }
+  si-11:   { d: no-signal, why: "Error message content is application behaviour." }
+  si-16:   { d: no-signal, why: "Memory protection is an OS and hardware property." }
+  si-8:    { d: no-signal, why: "No email service is in scope for these packs." }
+  si-8.2:  { d: no-signal, why: "As si-8." }
+  si-5:    { d: gov, why: "Receiving and disseminating security advisories is a process." }
+  si-7.7:  { d: gov, why: "Integrating change detection into incident response is a process integration." }
+
+  # ===== RISK ASSESSMENT =====================================================
+  ra-5.5:  { d: no-signal, why: "Privileged access authorization for vulnerability scanning is a scanner credential arrangement; Inspector is the producer, and its findings are not Config results." }

@@ -428,12 +428,55 @@ odps:
     baselines: [low, moderate, high]
     type: list
     item_type: string
-    constraint: { max_items: 10 }
+    # AWS takes this as ONE comma-separated string of `key` or `key:value` pairs.
+    # A stray comma, a second colon, or surrounding whitespace does not error --
+    # AWS ignores the malformed entry, so the allow-list is silently SMALLER than
+    # it reads and more AMIs pass than intended. The pattern makes that a build
+    # failure. Commas are forbidden inside an entry because they are the delimiter.
+    constraint:
+      max_items: 10
+      item_pattern: '^[A-Za-z0-9+\-=._:/@]+(:[A-Za-z0-9+\-=._:/@ ]+)?$'
     # Deliberately empty and TAG-based rather than id-based. An AMI id list goes
     # stale on every image build, which turns the ODP into a maintenance treadmill
     # that quietly stops being updated -- and a stale allow-list fails closed on
     # every new image, so people widen it until it means nothing.
     default: []
+
+  approved_ami_ids:
+    description: >-
+      AMI ids approved for launch, as the id-based alternative to the tag allow-list.
+    control: cm-2
+    oscal_param_id: cm-02_odp.02
+    oscal_alt_id: cm-2_prm_2
+    oscal_label: circumstances
+    baselines: [low, moderate, high]
+    type: list
+    item_type: string
+    constraint:
+      max_items: 50
+      # ami- followed by 8 or 17 hex characters. A malformed id does not error at
+      # deploy time; it simply matches nothing, so the allow-list is silently
+      # smaller than it reads and more AMIs pass than intended.
+      item_pattern: '^ami-([0-9a-f]{8}|[0-9a-f]{17})$'
+    default: []
+    # ---------------------------------------------------------------------
+    # THE FIRST ODP IN THIS CATALOG THAT CANNOT BE REGION-PORTABLE
+    # ---------------------------------------------------------------------
+    # An AMI id is scoped to ONE Region, and a private AMI to one account. The
+    # same overlay deployed to a second Region therefore allow-lists nothing
+    # there, and every instance fails -- not because it is unapproved, but
+    # because the ids do not exist in that Region.
+    #
+    # Every other ODP here is a threshold or a policy name and travels
+    # unchanged. This one does not, which breaks the one-overlay-many-Regions
+    # model the rest of the design assumes.
+    #
+    # It also goes stale on every image build, so a maintained list drifts toward
+    # being widened until it means nothing.
+    #
+    # PREFER approved_ami_tag_pairs. This exists because issue #6 names the rule
+    # and omitting it silently would hide the choice; it defaults to empty, and
+    # an empty list leaves the rule inert rather than half-configured.
 
   stopped_instance_allowed_days:
     description: >-

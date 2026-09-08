@@ -764,3 +764,68 @@ def test_rto_is_evidence_only_not_inferred_from_backup_frequency():
     o = CATALOG["odps"]["recovery_time_objective_hours"]
     assert isinstance(o.get("evidence_only"), str)
     assert "proxy" in o["evidence_only"].lower()
+
+
+# --- #26 crosswalk, and the two AMI allow-lists ------------------------------
+
+def test_ami_tag_pattern_rejects_the_malformations_aws_ignores():
+    """AWS takes amisByTagKeyAndValue as ONE comma-separated string. A stray
+    comma or a space does not error -- AWS ignores the malformed entry, so the
+    allow-list is silently SMALLER than it reads and more AMIs pass."""
+    for bad in (["golden:approved,extra"], ["has space:v"], [" leading:v"], ["trailing,"]):
+        o = ov()
+        for e in o["parameters"]:
+            if e["param_id"] == "approved_ami_tag_pairs":
+                e["value"] = bad
+        with pytest.raises(GenerationError, match="does not match the required shape"):
+            generate.resolve(cat(), o, None)
+
+
+def test_ami_tag_pattern_accepts_real_shapes():
+    for good in (["golden-image:approved"], ["Compliance:PCI-DSS", "team:platform"], ["just-a-key"]):
+        o = ov()
+        for e in o["parameters"]:
+            if e["param_id"] == "approved_ami_tag_pairs":
+                e["value"] = good
+        generate.resolve(cat(), o, None)
+
+
+def test_ami_id_pattern_rejects_a_malformed_id():
+    o = ov()
+    for e in o["parameters"]:
+        if e["param_id"] == "approved_ami_ids":
+            e["value"] = ["ami-nothex!!", "i-0123456789abcdef0"]
+    with pytest.raises(GenerationError, match="does not match the required shape"):
+        generate.resolve(cat(), o, None)
+
+
+def test_ami_id_odp_records_that_it_is_not_region_portable():
+    """The first ODP in the catalog that cannot travel between Regions in one
+    overlay -- it breaks the one-overlay-many-Regions model the rest assumes."""
+    raw = (ROOT / "odp/catalog.yaml").read_text()
+    assert "CANNOT BE REGION-PORTABLE" in raw
+
+
+def test_crosswalk_dispositions_cover_every_gap_control_with_a_reason():
+    d = yaml.safe_load((ROOT / "docs/dev/crosswalk-dispositions.yaml").read_text())["dispositions"]
+    assert len(d) == 94
+    assert all(v["d"] in ("claim", "no-signal", "gov") for v in d.values())
+    assert all(v.get("why") for v in d.values()), "every disposition needs a stated reason"
+    # a claim must name the rules that justify it
+    assert all(v.get("rules") for v in d.values() if v["d"] == "claim")
+
+
+def test_claimed_controls_actually_reached_the_catalogs():
+    d = yaml.safe_load((ROOT / "docs/dev/crosswalk-dispositions.yaml").read_text())["dispositions"]
+    # A rule can appear in two catalogs (vpc-flow-logs-enabled is in NET and
+    # LOG), so union rather than overwrite -- a flat dict silently keeps
+    # whichever file was read last and asserts against the wrong copy.
+    built: dict[str, set] = {}
+    for f in (ROOT / "rules").glob("*.yaml"):
+        for name, r in yaml.safe_load(f.read_text())["rules"].items():
+            built.setdefault(name, set()).update(r["controls"].get("nist_800_53_r5", []))
+    for ctrl, v in d.items():
+        if v["d"] != "claim":
+            continue
+        for rule in v["rules"]:
+            assert ctrl in built[rule], f"{rule} does not claim {ctrl}"

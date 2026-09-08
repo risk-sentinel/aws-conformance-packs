@@ -67,6 +67,10 @@ parameters:
     value: 30
 
   # --- cm-2 -> cm-02_odp.02 (circumstances) ---
+  # approved_ami_ids is REGION-SCOPED and cannot travel between Regions in one
+  # overlay. Prefer approved_ami_tag_pairs. See odp/catalog.yaml.
+  - param_id: approved_ami_ids
+    value: []
   - param_id: approved_ami_tag_pairs
     value: []
 
