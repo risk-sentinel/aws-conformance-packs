@@ -67,5 +67,16 @@ venv/
 .ruff_cache/
 .pytest_cache/
 
+## Consumer deployment config — holds account ids, bucket names and Regions.
+## inputs.template.yml is the committed reference; inputs.yml is yours.
+inputs.yml
+
+## Consumer ODP overlays. overlays/vanilla*.yaml are the committed references;
+## anything else is an organization's own tailoring and is not ours to carry.
+overlays/*.yaml
+!overlays/vanilla.yaml
+!overlays/vanilla-low.yaml
+!overlays/vanilla-high.yaml
+
 ## Generated conformance packs and reports
 out/
