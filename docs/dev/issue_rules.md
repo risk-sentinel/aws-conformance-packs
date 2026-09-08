@@ -15,6 +15,9 @@ These rules are **mandatory** — no exceptions without explicit owner approval.
 - **Never suppress a scanner finding without explicit approval** — see [Suppressing scanner findings](#suppressing-scanner-findings)
 - **Never put account-specific identifiers in commit / PR / issue messages** — no account numbers, ARNs, ECR/registry URIs (they embed the account #), resource IDs (`sg-…`, `vol-…`, `db-…`), or regions in narrative text. Reference abstractly ("the scanner role", "the prod account", "the deployed region") or by secret/variable name (`AWS_ROLE_ARN`, `ECR_REGISTRY`). Git history + GitHub text are lower-trust than the code. (Code/config that legitimately needs a literal value is a separate concern.)
 - **Always update compliance artifacts** when adding or modifying InSpec controls
+- **Always open PRs against the default branch** — a stacked PR silently skips
+  CodeQL, and the required check then waits forever. See [Pull request
+  mechanics](#pull-request-mechanics)
 
 ---
 
@@ -142,6 +145,79 @@ not "a scanner was quiet that day".
 13. **Create a PR**
     - Reference the issue so it will auto-close on merge
     - Wait for the PR to be merged by the owner before moving forward
+
+---
+
+## Pull request mechanics
+
+Two traps that cost real time here. Both share a shape: **a required check that
+never reports is indistinguishable from one still running**, so the PR simply
+sits there looking busy.
+
+### Open PRs against the default branch
+
+A PR based on another feature branch **silently skips CodeQL**. GitHub's
+code-scanning default setup only triggers on pull requests targeting the
+*default* branch, so a stacked PR gets no analysis at all — and `Analyze (...)`
+is a required status check, so it waits forever for a run that will never exist.
+
+Retargeting the PR to `main` afterwards does **not** backfill it. Neither does
+closing and reopening. Default setup wants a **new head SHA**; the reliable fix
+is to push one:
+
+```bash
+git commit --amend --no-edit     # same tree, new SHA
+git push --force-with-lease
+```
+
+Observed on aws-conformance-packs#16: opened against a feature branch, three
+checks green, `Analyze (python)` never started. Verified by listing CodeQL runs —
+there was no `refs/pull/16/head` run at all, which is what distinguishes *never
+started* from *stuck*.
+
+**So: open PRs against `main`.** If work genuinely must stack, retarget to `main`
+**and** push a new head SHA before expecting checks to pass.
+
+### Retarget a stacked PR before its base merges
+
+With `delete_branch_on_merge` enabled, merging a PR deletes its branch — and
+**deleting a branch closes every PR stacked on it**. A closed PR whose base
+branch is gone cannot be reopened or retargeted; recovery means opening a new
+one and losing the review history.
+
+Retarget children onto `main` *first*, then merge the parent.
+
+### Squash-merging breaks a stacked child
+
+Related, and easy to miss. If the parent PR is **squash**-merged, its commits
+never enter `main`. A child branched from it then contains commits `main` does
+not have, so retargeting replays the parent's entire diff as though it were new
+work — usually as a conflict.
+
+Recovery is to replay only the child's own commits:
+
+```bash
+git rebase --onto origin/main <parent-tip-sha> <child-branch>
+```
+
+This is one of the reasons **this repository allows merge commits only**
+(`allow_squash_merge=false`, `allow_rebase_merge=false`). The commit chain is the
+traceability, and for a repository producing FedRAMP evidence, "which commits
+produced this artifact" must not depend on which merge button someone clicked.
+
+### You cannot approve your own pull request
+
+No forge permits it — not for admins, not with any protection setting. A PR you
+authored shows `BLOCKED` / `REVIEW_REQUIRED` with every check green. That is not
+a misconfiguration and widening branch protection will not fix it. Either another
+CODEOWNER reviews it, or the owner merges through admin bypass.
+
+Check what is actually blocking before concluding the protection is wrong:
+
+```bash
+gh pr view <n> --json mergeStateStatus,reviewDecision
+gh pr checks <n>
+```
 
 ---
 
