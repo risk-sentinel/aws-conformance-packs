@@ -144,16 +144,46 @@ def check_region(region: str, needed: set[str], profile: str | None,
                             f"Rules scoped to them report INSUFFICIENT_DATA rather than "
                             f"failing.")
 
-    includes_global = bool(group.get("includeGlobalResourceTypes"))
-    if expect_global and not (includes_global or all_supported):
-        problems.append(f"{region}: designated as the global-resource Region but the "
-                        f"recorder does not include global resource types. IAM is global "
-                        f"and would be recorded nowhere.")
-    if not expect_global and includes_global:
-        problems.append(f"{region}: records global resources, but "
-                        f"`global_resource_region` names another Region. Global resources "
-                        f"recorded in more than one Region duplicate configuration items "
-                        f"and duplicate the bill.")
+    # WHETHER GLOBAL RESOURCES ARE RECORDED DEPENDS ON THE STRATEGY, and reading
+    # `includeGlobalResourceTypes` on its own gets it wrong.
+    #
+    # Found against a live account: a recorder using EXCLUSION_BY_RESOURCE_TYPES
+    # reported `includeGlobalResourceTypes: false` while demonstrably recording
+    # IAM users, roles and policies. Under that strategy AWS records every
+    # supported type NOT on the exclusion list, and the flag is vestigial.
+    #
+    # The earlier check read the flag literally, refused, and would have had
+    # someone make an unnecessary change to a production recorder to satisfy it.
+    # That is the third time a guard here has refused valid work, and the first
+    # time one nearly caused the damage it existed to prevent.
+    GLOBAL_PREFIXES = ("AWS::IAM::", "AWS::Organizations::", "AWS::CloudFront::",
+                       "AWS::Shield", "AWS::GlobalAccelerator::", "AWS::Route53::")
+    if strategy == "EXCLUSION_BY_RESOURCE_TYPES" or exclusions:
+        excluded_global = sorted(x for x in exclusions if x.startswith(GLOBAL_PREFIXES))
+        records_global = not excluded_global
+        global_detail = (f"global resource types {excluded_global} are on the exclusion list"
+                         if excluded_global else "no global resource type is excluded")
+    elif all_supported:
+        records_global = bool(group.get("includeGlobalResourceTypes"))
+        global_detail = f"allSupported with includeGlobalResourceTypes={records_global}"
+    else:
+        # An explicit inclusion list records only what it names.
+        records_global = any(rt.startswith(GLOBAL_PREFIXES) for rt in recorded)
+        global_detail = "explicit resource-type list"
+
+    if expect_global and not records_global:
+        problems.append(
+            f"{region}: designated as the global-resource Region but does not record "
+            f"global resource types ({global_detail}). IAM is global, so an IAM pack "
+            f"deployed anywhere would evaluate nothing.")
+    if not expect_global and records_global and strategy != "EXCLUSION_BY_RESOURCE_TYPES":
+        # Only warned for an explicit configuration. Under the exclusion strategy
+        # recording global types is the DEFAULT, so flagging it would fire in
+        # every Region of every account using that strategy.
+        problems.append(
+            f"{region}: records global resources, but `global_resource_region` names "
+            f"another Region. Global resources recorded in more than one Region "
+            f"duplicate configuration items and duplicate the bill.")
 
     channels = _aws(["configservice", "describe-delivery-channels"],
                     region, profile).get("DeliveryChannels") or []

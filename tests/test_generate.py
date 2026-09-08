@@ -996,10 +996,15 @@ def test_preflight_refuses_global_resources_recorded_in_the_wrong_place(monkeypa
 
 
 def test_preflight_passes_a_correctly_configured_region(monkeypatch):
+    """Fixture corrected: under `allSupported`, `includeGlobalResourceTypes` is
+    what governs global types, so a global Region must set BOTH. The original
+    fixture omitted the flag and the original check treated allSupported alone as
+    sufficient — which is not what AWS does."""
     p = _load("preflight")
     def fake(args, region, profile):
         if args[1] == "describe-configuration-recorders":
-            return {"ConfigurationRecorders": [{"recordingGroup": {"allSupported": True}}]}
+            return {"ConfigurationRecorders": [{"recordingGroup": {
+                "allSupported": True, "includeGlobalResourceTypes": True}}]}
         if args[1] == "describe-configuration-recorder-status":
             return {"ConfigurationRecordersStatus": [{"recording": True}]}
         return {"DeliveryChannels": [{"name": "default"}]}
@@ -1393,3 +1398,69 @@ def test_validation_does_not_refuse_legitimate_outside_paths(tmp_path):
     f = d / "overlay.yaml"; f.write_text("baseline_level: moderate\n")
     assert sp.consumer_file(f, "--overlay") == f.resolve()
     assert sp.consumer_dir(d, "--artifact-dir") == d.resolve()
+
+
+# --- global-resource recording depends on the STRATEGY -----------------------
+
+def _recorder(group, recording=True):
+    def fake(args, region, profile):
+        if args[1] == "describe-configuration-recorders":
+            return {"ConfigurationRecorders": [{"recordingGroup": group}]}
+        if args[1] == "describe-configuration-recorder-status":
+            return {"ConfigurationRecordersStatus": [{"recording": recording}]}
+        return {"DeliveryChannels": [{"name": "default"}]}
+    return fake
+
+
+def test_exclusion_strategy_records_global_unless_excluded(monkeypatch):
+    """Found against a live account: a recorder using EXCLUSION_BY_RESOURCE_TYPES
+    reported includeGlobalResourceTypes=false while demonstrably recording IAM
+    users, roles and policies. Under that strategy AWS records every supported
+    type NOT on the exclusion list, and the flag is vestigial.
+
+    The old check read the flag literally and refused -- and would have had
+    someone change a production recorder to satisfy a guard that was wrong."""
+    p = _load("preflight")
+    monkeypatch.setattr(p, "_aws", _recorder({
+        "allSupported": False, "includeGlobalResourceTypes": False,
+        "recordingStrategy": {"useOnly": "EXCLUSION_BY_RESOURCE_TYPES"},
+        "exclusionByResourceTypes": {"resourceTypes": ["AWS::EC2::Instance"]}}))
+    assert p.check_region("us-east-1", set(), None, expect_global=True) == []
+
+
+def test_exclusion_strategy_refuses_when_global_types_ARE_excluded(monkeypatch):
+    p = _load("preflight")
+    monkeypatch.setattr(p, "_aws", _recorder({
+        "allSupported": False, "includeGlobalResourceTypes": False,
+        "recordingStrategy": {"useOnly": "EXCLUSION_BY_RESOURCE_TYPES"},
+        "exclusionByResourceTypes": {"resourceTypes": ["AWS::IAM::User"]}}))
+    problems = p.check_region("us-east-1", set(), None, expect_global=True)
+    assert any("does not record global resource types" in x for x in problems)
+    assert any("AWS::IAM::User" in x for x in problems)
+
+
+def test_all_supported_strategy_honours_the_flag(monkeypatch):
+    """Where allSupported is true the flag is NOT vestigial and must be read."""
+    p = _load("preflight")
+    monkeypatch.setattr(p, "_aws", _recorder({
+        "allSupported": True, "includeGlobalResourceTypes": False}))
+    assert any("does not record global resource types" in x
+               for x in p.check_region("us-east-1", set(), None, expect_global=True))
+    monkeypatch.setattr(p, "_aws", _recorder({
+        "allSupported": True, "includeGlobalResourceTypes": True}))
+    assert p.check_region("us-east-1", set(), None, expect_global=True) == []
+
+
+def test_duplicate_global_recording_warned_only_for_explicit_config(monkeypatch):
+    """Under the exclusion strategy, recording global types is the DEFAULT --
+    warning about it would fire in every Region of every account using it."""
+    p = _load("preflight")
+    monkeypatch.setattr(p, "_aws", _recorder({
+        "allSupported": False, "includeGlobalResourceTypes": False,
+        "recordingStrategy": {"useOnly": "EXCLUSION_BY_RESOURCE_TYPES"},
+        "exclusionByResourceTypes": {"resourceTypes": []}}))
+    assert p.check_region("us-west-2", set(), None, expect_global=False) == []
+    monkeypatch.setattr(p, "_aws", _recorder({
+        "allSupported": True, "includeGlobalResourceTypes": True}))
+    assert any("duplicate configuration items" in x
+               for x in p.check_region("us-west-2", set(), None, expect_global=False))
