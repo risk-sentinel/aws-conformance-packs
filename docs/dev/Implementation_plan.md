@@ -8,18 +8,19 @@ per-organization ODP overlay. It is a *generator and a deployment pattern*, not 
 profile: there are no InSpec controls here. Evidence leaves this repo as Config
 rule evaluations, which `risk-sentinel/aws-config` converts to HDF.
 
-**Last updated:** 2026-09-07 (**Phase 1 complete; provenance vendored; all three
-baselines generate.** #15 vendors FedRAMP's machine-readable rules and a derived NIST
-parameter index (226 KB from 10.6 MB of OSCAL), and adds `odp_lookup.py` so the 767
-parameters behind the remaining domains are derived rather than transcribed. It also
-fixed a gap that made **Low ungeneratable**: a rule binding a control outside the
-target baseline used to fail the build, so any catalog holding a Moderate-only rule
-blocked Low entirely. It is now a recorded **exclusion** — skipped, with its reason
-rendered into the coverage report, because coverage must never be inferred from
-absence. Earlier: all 28 KSI ids in the repo were stale (0 of 28 existed); the
-generator now refuses any KSI that does not exist or that claims none of the rule's
-own controls. Same drift raised on the flagship as sparc#1115. Next: the five
-remaining domain catalogs.)
+**Last updated:** 2026-09-08 (**Phase 2 begun: NET (#3) is the first full domain
+catalog.** 8 rules, and it forced two capabilities the generator lacked. A `list`
+ODP type, because `RESTRICTED_INCOMING_TRAFFIC` takes `blockedPort1..blockedPort5`
+as five discrete parameters — a sixth port does not error at deploy time, it is
+simply never rendered, so it goes unchecked while appearing configured. Both the
+catalog cap and a render-time slot check now refuse it, verified to fire
+independently. And per-rule `ipv6_evaluated`, rendered into the deployed
+description, because several boundary rules evaluate `0.0.0.0/0` and not `::/0`
+and an operator cannot tell from a PASS. The KSI intersection check earned itself
+immediately: it caught `elbv2-acm-certificate-required` claiming `KSI-CNA-MAT`,
+which claims `sc-7.3/7.4/7.5` and not bare `sc-7`. Prior: #15 vendored FedRAMP and
+NIST provenance and fixed the ungeneratable Low baseline. Next: CRYPTO, LOG, VCM,
+RPL, and completing IAM.)
 
 ---
 
@@ -95,8 +96,8 @@ checklist.
 |---|---|
 | Tracking issues | **9 filed** — #1 epic, #2–#8 domains, **#9 Phase 0** (active) |
 | Generator (`generate.py`) | **Built** (#13) — resolves, renders, validates, emits 5 artifacts. 22 tests |
-| ODP catalog (`odp/catalog.yaml`) | **7 ODPs (IAM domain)** — keyed to real Rev 5 OSCAL param ids, validated in CI (#11) |
-| Rule catalogs (`rules/<domain>.yaml`) | **1 / 6 partial** — `rules/iam.yaml`, re-keyed to real mnemonic KSI ids. #2 open for the full set |
+| ODP catalog (`odp/catalog.yaml`) | **11 ODPs** — IAM (7) + NET (4), including the first `list` type with a hard slot cap |
+| Rule catalogs (`rules/<domain>.yaml`) | **2 / 6** — `iam.yaml` (7 rules, partial; #2 open) and `net.yaml` (8 rules, #3). 15 rules total |
 | Guard policies (`guard/`) | **Not started** — first needed by CRYPTO (#4) |
 | Overlays (`overlays/`) | **3** — `vanilla.yaml` (moderate), `vanilla-low.yaml`, `vanilla-high.yaml`. All three generate; Low records 2 exclusions |
 | Repo CI | **5 workflows.** secret-scan (+ fixture canary), pack-lint, CodeQL (python), 2 HDF emitters |
@@ -413,7 +414,7 @@ table.
 | Issue | Pack | Est. rules | ODPs | Why this order |
 |---|---|---|---|---|
 | [#2](https://github.com/risk-sentinel/aws-conformance-packs/issues/2) | **IAM** | 25–35 | 7 | Highest ODP density in the program — it exercises the catalog hardest and shakes out the schema first. Region-pinning for global resources is a pattern every later pack inherits |
-| [#3](https://github.com/risk-sentinel/aws-conformance-packs/issues/3) | **NET** | 20–30 | 3 | Port-list capacity is the first real `constraint` test (>5 ports must move to Guard) |
+| [#3](https://github.com/risk-sentinel/aws-conformance-packs/issues/3) | **NET** | 8 built | 4 | **DONE.** Port-list capacity proved the `list` type and the slot cap. Domain caveat: Config evaluates boundary components as objects, not reachability |
 | [#4](https://github.com/risk-sentinel/aws-conformance-packs/issues/4) | **CRYPTO** | 25–35 | 4 | **First Guard-heavy pack.** KMS rotation period and min-TLS have no managed-rule parameter, so this is where `CUSTOM_POLICY` token substitution and the S3-hosted-template threshold get proven |
 | [#5](https://github.com/risk-sentinel/aws-conformance-packs/issues/5) | **LOG** | 30–40 | 3 | Largest rule count and where Config cost explodes — model the bill before org rollout |
 | [#6](https://github.com/risk-sentinel/aws-conformance-packs/issues/6) | **VCM** | 25–35 | 3 | First `evidence_only_odps` user |

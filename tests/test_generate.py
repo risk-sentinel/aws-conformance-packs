@@ -309,3 +309,75 @@ def test_evidence_names_the_snapshot_it_was_assessed_against(tmp_path):
     assert _run_cli(tmp_path, []) == 0
     tags = json.loads((tmp_path / "out/800-53r5-IAM.evidence-tags.json").read_text())
     assert tags["fedramp_snapshot"]["version"] != "unknown"
+
+
+# --- NET: list ODPs and the five-slot rule cap -------------------------------
+
+NET = yaml.safe_load((ROOT / "rules/net.yaml").read_text())
+
+
+def net(): return copy.deepcopy(NET)
+
+
+def _ov_with(param_id, value):
+    o = ov()
+    o["parameters"] = [p for p in o["parameters"] if p["param_id"] != param_id]
+    o["parameters"].append({"param_id": param_id, "value": value})
+    return o
+
+
+def test_list_odp_renders_as_numbered_slots():
+    """RESTRICTED_INCOMING_TRAFFIC takes blockedPort1..5, not one list."""
+    t, _, _ = generate.render_pack(cat(), net(), generate.resolve(cat(), ov(), None), "moderate")
+    ip = t["Resources"]["RestrictedCommonPorts"]["Properties"]["InputParameters"]
+    assert sorted(ip) == [f"blockedPort{i}" for i in range(1, 6)]
+
+
+def test_list_odp_without_expand_renders_comma_joined():
+    t, _, _ = generate.render_pack(cat(), net(), generate.resolve(cat(), ov(), None), "moderate")
+    p = t["Parameters"]["VpcSgOpenOnlyToAuthorizedPortsParamAuthorizedTcpPorts"]
+    assert p["Default"] == "443"
+
+
+def test_too_many_ports_for_the_rules_slots_refused():
+    """The guard issue #3 asks for. A 6th port does NOT error at deploy time --
+    it is simply never rendered, so it goes unchecked while appearing set."""
+    c = cat()
+    c["odps"]["blocked_ingress_ports"]["constraint"]["max_items"] = 10   # catalog allows it
+    o = _ov_with("blocked_ingress_ports", [20, 21, 23, 25, 3389, 3306, 4333])
+    with pytest.raises(GenerationError, match="only 5 slots"):
+        generate.render_pack(c, net(), generate.resolve(c, o, None), "moderate")
+
+
+def test_list_item_out_of_range_refused():
+    with pytest.raises(GenerationError, match="above item_max"):
+        generate.resolve(cat(), _ov_with("blocked_ingress_ports", [70000]), None)
+
+
+def test_list_item_of_wrong_type_refused():
+    with pytest.raises(GenerationError, match="is not an integer"):
+        generate.resolve(cat(), _ov_with("blocked_ingress_ports", [22, "ssh"]), None)
+
+
+def test_scalar_where_a_list_is_declared_refused():
+    with pytest.raises(GenerationError, match="expected a list"):
+        generate.resolve(cat(), _ov_with("blocked_ingress_ports", 22), None)
+
+
+def test_ipv6_gap_is_rendered_into_the_description():
+    """An operator reading a green console cannot otherwise know."""
+    t, _, _ = generate.render_pack(cat(), net(), generate.resolve(cat(), ov(), None), "moderate")
+    d = t["Resources"]["SubnetAutoAssignPublicIpDisabled"]["Properties"]["Description"]
+    assert "IPv6: NOT evaluated" in d
+    d2 = t["Resources"]["VpcSgOpenOnlyToAuthorizedPorts"]["Properties"]["Description"]
+    assert "IPv6: UNVERIFIED" in d2
+
+
+def test_net_coverage_report_states_reachability_and_unmodeled(tmp_path):
+    rc = _run_cli(tmp_path, ["--rules", str(ROOT / "rules/net.yaml")])
+    assert rc == 0
+    md = (tmp_path / "out/800-53r5-NET.coverage.md").read_text()
+    assert "not as reachability" in md
+    assert "Not modeled by any rule in this pack" in md
+    assert "KSI-CNA-RVP" in md          # DoS, deliberately not faked onto a WAF rule
+    assert "IPv6 evaluation" in md

@@ -87,6 +87,24 @@ def _violates(value, odp: dict) -> str | None:
         return f"{value!r} is not one of {con.get('values')}"
     elif typ == "string" and not isinstance(value, str):
         return f"expected a string, got {type(value).__name__} ({value!r})"
+    elif typ == "list":
+        if not isinstance(value, list):
+            return f"expected a list, got {type(value).__name__} ({value!r})"
+        if (mx := con.get("max_items")) is not None and len(value) > mx:
+            return (f"{len(value)} items exceeds max_items {mx}. This is not a style "
+                    f"limit: past it the extra entries are never rendered, so they go "
+                    f"unchecked while the catalog claims otherwise")
+        it = odp.get("item_type")
+        for v in value:
+            if it == "integer":
+                if isinstance(v, bool) or not isinstance(v, int):
+                    return f"item {v!r} is not an integer"
+                if (lo := con.get("item_min")) is not None and v < lo:
+                    return f"item {v} is below item_min {lo}"
+                if (hi := con.get("item_max")) is not None and v > hi:
+                    return f"item {v} is above item_max {hi}"
+            elif it == "string" and not isinstance(v, str):
+                return f"item {v!r} is not a string"
     return None
 
 
@@ -201,6 +219,15 @@ def _rendered_description(rule: dict) -> str:
         parts.append(f"COVERAGE ({rule['coverage']}): {' '.join(note.split())}")
     if note := rule.get("periodic_note"):
         parts.append(f"TIMING: {' '.join(note.split())}")
+    # IPv6 is the silent gap in boundary rules: several managed rules evaluate
+    # 0.0.0.0/0 and not ::/0. An operator cannot tell from a PASS, so say it here.
+    ipv6 = rule.get("ipv6_evaluated")
+    if ipv6 is False:
+        parts.append("IPv6: NOT evaluated by this rule -- a resource open on ::/0 "
+                     "can pass. Do not read a PASS as dual-stack coverage.")
+    elif ipv6 == "unknown":
+        parts.append("IPv6: UNVERIFIED for this rule. Confirm against a live account "
+                     "before relying on it for a dual-stack boundary.")
     return " ".join(parts)
 
 
@@ -253,16 +280,53 @@ def render_pack(catalog: dict, rules_doc: dict, resolved: dict[str, Resolved],
                     f"odp/catalog.yaml does not declare."
                 )
             odp = odps[key]
-
             r = resolved[key]
-            cfn_name = _cfn_param_name(rule_name, param)
-            cond_name = cfn_name[0].lower() + cfn_name[1:]
 
-            parameters[cfn_name] = {"Default": str(r.value), "Type": "String"}
-            conditions[cond_name] = {"Fn::Not": [{"Fn::Equals": ["", {"Ref": cfn_name}]}]}
-            rule_params[param] = {
-                "Fn::If": [cond_name, {"Ref": cfn_name}, {"Ref": "AWS::NoValue"}]
-            }
+            # Some managed rules take a list as N discrete numbered parameters
+            # rather than one delimited string -- RESTRICTED_INCOMING_TRAFFIC
+            # exposes blockedPort1..blockedPort5. `expand` says how many slots the
+            # rule actually has.
+            #
+            # This is the check issue #3 asks for. A sixth port does NOT error at
+            # deploy time; it is simply never rendered, so it goes unchecked while
+            # the catalog claims it is blocked. That is a false assurance, so it
+            # fails the build here.
+            expand = binding.get("expand")
+            if expand:
+                if not isinstance(r.value, list):
+                    raise GenerationError(
+                        f"rule {rule_name}.{param} uses `expand` but ODP {key} is "
+                        f"{odp['type']}, not a list."
+                    )
+                if len(r.value) > expand:
+                    raise GenerationError(
+                        f"rule {rule_name}.{param}: ODP {key} has {len(r.value)} "
+                        f"items but the rule exposes only {expand} slots "
+                        f"({param.replace('{n}', '1')}..{param.replace('{n}', str(expand))}). "
+                        f"The extra entries would never be rendered and would go "
+                        f"unchecked while appearing configured. Move this rule to a "
+                        f"Guard policy, or shorten the list."
+                    )
+                for idx, item in enumerate(r.value, start=1):
+                    slot = param.replace("{n}", str(idx))
+                    cfn_name = _cfn_param_name(rule_name, slot)
+                    cond_name = cfn_name[0].lower() + cfn_name[1:]
+                    parameters[cfn_name] = {"Default": str(item), "Type": "String"}
+                    conditions[cond_name] = {
+                        "Fn::Not": [{"Fn::Equals": ["", {"Ref": cfn_name}]}]}
+                    rule_params[slot] = {
+                        "Fn::If": [cond_name, {"Ref": cfn_name}, {"Ref": "AWS::NoValue"}]}
+            else:
+                # A list with no `expand` renders as one comma-joined string,
+                # which is how authorizedTcpPorts and friends take it.
+                rendered = (",".join(str(v) for v in r.value)
+                            if isinstance(r.value, list) else str(r.value))
+                cfn_name = _cfn_param_name(rule_name, param)
+                cond_name = cfn_name[0].lower() + cfn_name[1:]
+                parameters[cfn_name] = {"Default": rendered, "Type": "String"}
+                conditions[cond_name] = {"Fn::Not": [{"Fn::Equals": ["", {"Ref": cfn_name}]}]}
+                rule_params[param] = {
+                    "Fn::If": [cond_name, {"Ref": cfn_name}, {"Ref": "AWS::NoValue"}]}
 
             for control in rule["controls"].get("nist_800_53_r5", []):
                 trace.append({
@@ -271,7 +335,9 @@ def render_pack(catalog: dict, rules_doc: dict, resolved: dict[str, Resolved],
                     "ksi": ";".join(rule["controls"].get("ksi", [])),
                     "coverage": rule["coverage"], "odp": key,
                     "oscal_param_id": r.oscal_param_id, "oscal_alt_id": r.oscal_alt_id,
-                    "parameter": param, "value": r.value, "assigned_by": r.assigned_by,
+                    "parameter": param, "assigned_by": r.assigned_by,
+                    "value": (",".join(str(v) for v in r.value)
+                              if isinstance(r.value, list) else r.value),
                 })
 
         props = {
@@ -425,12 +491,27 @@ def emit(out_dir: Path, slug: str, template: dict, body: bytes, trace: list[dict
            "`INSUFFICIENT_DATA`.\n\n" if rules_doc.get("region_scope") == "global" else "")
         + "## Coverage by rule\n\n| Coverage | Rules |\n|---|---|\n"
         + "".join(f"| `{k}` | {', '.join(sorted(v))} |\n" for k, v in sorted(by_cov.items()))
+        + (f"\n## Domain caveat\n\n{' '.join(rules_doc['domain_caveat'].split())}\n"
+           if rules_doc.get("domain_caveat") else "")
+        + ("\n## Not modeled by any rule in this pack\n\nThese indicators are in "
+           "scope for the domain and are deliberately NOT forced onto a Config rule. "
+           "Saying so is the point: a rule bolted onto an indicator it cannot measure "
+           "is worse than an acknowledged gap.\n\n"
+           "| Indicator | Why not |\n|---|---|\n"
+           + "".join(f"| `{k}` | {' '.join(v.split())} |\n"
+                     for k, v in (rules_doc.get("not_modeled") or {}).items()) + "\n"
+           if rules_doc.get("not_modeled") else "")
         + ("\n## Excluded from this baseline\n\nThese rules are NOT in this pack. They are "
            "absent because the controls they bind are not in the " + baseline + " baseline -- "
            "not because they were forgotten. Coverage must never be inferred from absence.\n\n"
            "| Rule | Controls | Reason |\n|---|---|---|\n"
            + "".join(f"| `{e['rule']}` | {', '.join(e['controls'])} | {e['detail']} |\n"
                      for e in excluded) + "\n" if excluded else "")
+        + ("\n## IPv6 evaluation\n\n| Rule | IPv6 evaluated |\n|---|---|\n"
+           + "".join(f"| `{n}` | {r.get('ipv6_evaluated', 'not recorded')} |\n"
+                     for n, r in rules_doc["rules"].items()
+                     if "ipv6_evaluated" in r) + "\n"
+           if any("ipv6_evaluated" in r for r in rules_doc["rules"].values()) else "")
         + "\n## Recorder prerequisite\n\nEvery rule here is inert unless the recorder "
           "captures:\n\n"
         + "".join(f"- `{t}`\n" for t in rules_doc.get("required_resource_types", []))
