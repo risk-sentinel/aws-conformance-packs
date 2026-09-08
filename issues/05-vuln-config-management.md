@@ -22,6 +22,15 @@ labels: pack, domain:vcm
 `lambda-function-settings-check`, `ec2-instance-detailed-monitoring-enabled`,
 `ec2-volume-inuse-check`, `restricted-common-ports` (shared with NET)
 
+**Reconciled from AWS's published pack (2026-09-08).** These are rules AWS's own
+NIST 800-53 Rev 5 conformance pack maps to this domain that the original research
+for this issue did not name. None is dropped for being irrelevant to a particular
+boundary — that judgement belongs to the boundary, not the catalog, and is made at
+pack-composition time with its reason recorded (see #20). Assignment rationale in
+`docs/dev/rule-reconciliation.yaml`.
+
+`ebs-optimized-instance`, `ecs-containers-readonly-access`, `ecs-task-definition-user-for-host-mode-check`, `elastic-beanstalk-managed-updates-enabled`, `redshift-cluster-maintenancesettings-check`
+
 ## ODPs in scope
 
 | ODP | Control | Binds to |

@@ -24,6 +24,15 @@ labels: pack, domain:net
 `alb-waf-enabled`, `api-gw-associated-with-waf`, `cloudfront-associated-with-waf`,
 `internet-gateway-authorized-vpc-only`
 
+**Reconciled from AWS's published pack (2026-09-08).** These are rules AWS's own
+NIST 800-53 Rev 5 conformance pack maps to this domain that the original research
+for this issue did not name. None is dropped for being irrelevant to a particular
+boundary — that judgement belongs to the boundary, not the catalog, and is made at
+pack-composition time with its reason recorded (see #20). Assignment rationale in
+`docs/dev/rule-reconciliation.yaml`.
+
+`autoscaling-launch-config-public-ip-disabled`, `dms-replication-not-public`, `ebs-snapshot-public-restorable-check`, `ec2-instances-in-vpc`, `elasticsearch-in-vpc-only`, `elb-acm-certificate-required`, `emr-master-no-public-ip`, `lambda-function-public-access-prohibited`, `no-unrestricted-route-to-igw`, `opensearch-in-vpc-only`, `rds-snapshots-public-prohibited`, `redshift-enhanced-vpc-routing-enabled`, `s3-bucket-level-public-access-prohibited`, `sagemaker-notebook-no-direct-internet-access`, `ssm-document-not-public`, `vpc-vpn-2-tunnels-up`
+
 ## ODPs in scope
 
 | ODP | Control | Binds to |

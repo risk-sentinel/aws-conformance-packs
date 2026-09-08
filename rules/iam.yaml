@@ -171,3 +171,268 @@ rules:
       Evaluates ONCE PER ACCOUNT rather than per resource, so in an aggregated
       multi-account view this is a single finding covering a whole account. It
       also cannot distinguish a hardware factor from a virtual one.
+
+  account-part-of-organizations:
+    source: managed
+    identifier: ACCOUNT_PART_OF_ORGANIZATIONS
+    description: >-
+      The account is a member of an AWS Organization.
+    resource_types: [AWS::::Account]
+    controls:
+      nist_800_53_r5: [ac-2, ac-3]
+      ksi: [KSI-IAM-JIT, KSI-IAM-ELP]
+    coverage: supporting
+    coverage_note: >-
+      Organization membership is what makes service control policies enforceable, so
+      this is a precondition for org-wide access restriction rather than an access
+      control itself. Evaluates ONCE PER ACCOUNT.
+
+  codebuild-project-envvar-awscred-check:
+    source: managed
+    identifier: CODEBUILD_PROJECT_ENVVAR_AWSCRED_CHECK
+    description: >-
+      CodeBuild projects do not hold AWS credentials in plaintext environment variables.
+    resource_types: [AWS::CodeBuild::Project]
+    controls:
+      nist_800_53_r5: [ia-5, ac-6]
+      ksi: [KSI-IAM-APM, KSI-IAM-ELP]
+    coverage: partial
+    coverage_note: >-
+      Detects AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY by NAME in the project's
+      plaintext environment. A credential under any other variable name, or fetched at
+      build time from a parameter store the build can read, is invisible to it.
+
+  ec2-instance-profile-attached:
+    source: managed
+    identifier: EC2_INSTANCE_PROFILE_ATTACHED
+    description: >-
+      EC2 instances have an IAM instance profile attached.
+    resource_types: [AWS::EC2::Instance]
+    controls:
+      nist_800_53_r5: [ac-3, ac-6]
+      ksi: [KSI-IAM-ELP, KSI-IAM-JIT]
+    coverage: supporting
+    coverage_note: >-
+      Presence of a profile, never its contents. An instance carrying an
+      over-privileged role passes exactly as one carrying a least-privilege role does.
+
+  iam-customer-policy-blocked-kms-actions:
+    source: managed
+    identifier: IAM_CUSTOMER_POLICY_BLOCKED_KMS_ACTIONS
+    description: >-
+      Customer-managed IAM policies do not grant the blocked KMS actions.
+    resource_types: [AWS::IAM::Policy]
+    controls:
+      nist_800_53_r5: [ac-6, ac-6.1]
+      ksi: [KSI-IAM-ELP]
+    coverage: partial
+    coverage_note: >-
+      Customer-managed policies only. The same grant made inline on a principal is out
+      of scope for this rule -- iam-inline-policy-blocked-kms-actions is its pair, and
+      both are needed.
+    parameters:
+      blockedActionsPatterns: { odp: blocked_kms_action_patterns }
+
+  iam-inline-policy-blocked-kms-actions:
+    source: managed
+    identifier: IAM_INLINE_POLICY_BLOCKED_KMS_ACTIONS
+    description: >-
+      Inline IAM policies do not grant the blocked KMS actions.
+    resource_types: [AWS::IAM::User]
+    controls:
+      nist_800_53_r5: [ac-6, ac-6.1]
+      ksi: [KSI-IAM-ELP]
+    coverage: partial
+    coverage_note: >-
+      The inline counterpart to the customer-policy rule. Neither alone covers the
+      control.
+    parameters:
+      blockedActionsPatterns: { odp: blocked_kms_action_patterns }
+
+  iam-no-inline-policy-check:
+    source: managed
+    identifier: IAM_NO_INLINE_POLICY_CHECK
+    description: >-
+      IAM users, groups and roles carry no inline policies.
+    resource_types: [AWS::IAM::User]
+    controls:
+      nist_800_53_r5: [ac-6, ac-2]
+      ksi: [KSI-IAM-ELP, KSI-IAM-JIT]
+    coverage: full
+
+  iam-policy-no-statements-with-admin-access:
+    source: managed
+    identifier: IAM_POLICY_NO_STATEMENTS_WITH_ADMIN_ACCESS
+    description: >-
+      IAM policies do not grant full administrative privileges.
+    resource_types: [AWS::IAM::Policy]
+    controls:
+      nist_800_53_r5: [ac-6, ac-6.1]
+      ksi: [KSI-IAM-ELP]
+    coverage: partial
+    coverage_note: >-
+      Covers CUSTOMER-MANAGED policies only. The AWS-managed AdministratorAccess
+      policy attached directly to a principal is entirely out of scope, so a
+      least-privilege claim resting on this rule alone is overstated. A Guard policy
+      is needed if KSI-IAM-ELP is load-bearing.
+
+  iam-policy-no-statements-with-full-access:
+    source: managed
+    identifier: IAM_POLICY_NO_STATEMENTS_WITH_FULL_ACCESS
+    description: >-
+      IAM policies do not grant full access to any individual service.
+    resource_types: [AWS::IAM::Policy]
+    controls:
+      nist_800_53_r5: [ac-6]
+      ksi: [KSI-IAM-ELP]
+    coverage: partial
+    coverage_note: >-
+      Customer-managed policies only, with the same blind spot as the admin-access
+      rule.
+
+  iam-root-access-key-check:
+    source: managed
+    identifier: IAM_ROOT_ACCESS_KEY_CHECK
+    description: >-
+      The account root user has no active access keys.
+    resource_types: [AWS::::Account]
+    controls:
+      nist_800_53_r5: [ac-6, ia-5]
+      ksi: [KSI-IAM-ELP, KSI-IAM-APM]
+    coverage: full
+    coverage_note: >-
+      Evaluates ONCE PER ACCOUNT, so in an aggregated view this is a single finding
+      covering the whole account.
+
+  iam-user-group-membership-check:
+    source: managed
+    identifier: IAM_USER_GROUP_MEMBERSHIP_CHECK
+    description: >-
+      IAM users belong to at least one group.
+    resource_types: [AWS::IAM::User]
+    controls:
+      nist_800_53_r5: [ac-2, ac-6]
+      ksi: [KSI-IAM-JIT, KSI-IAM-ELP]
+    coverage: supporting
+    coverage_note: >-
+      Group membership is a permission-management practice, not a permission boundary.
+      A user in a group granting administrator access passes.
+
+  mfa-enabled-for-iam-console-access:
+    source: managed
+    identifier: MFA_ENABLED_FOR_IAM_CONSOLE_ACCESS
+    description: >-
+      IAM users with console passwords have MFA enabled.
+    resource_types: [AWS::IAM::User]
+    controls:
+      nist_800_53_r5: [ia-2.1, ia-2.2]
+      ksi: [KSI-IAM-APM]
+    coverage: partial
+    coverage_note: >-
+      Sees only THAT MFA exists, never which factor. KSI-IAM-APM asks for passwordless
+      methods or phishing-resistant MFA; a virtual TOTP authenticator passes this rule
+      and satisfies neither.
+
+  rds-instance-default-admin-check:
+    source: managed
+    identifier: RDS_INSTANCE_DEFAULT_ADMIN_CHECK
+    description: >-
+      RDS instances do not use the default administrative username.
+    resource_types: [AWS::RDS::DBInstance]
+    controls:
+      nist_800_53_r5: [ia-5, ac-6]
+      ksi: [KSI-IAM-APM, KSI-IAM-ELP]
+    coverage: supporting
+    coverage_note: >-
+      A non-default username raises the cost of credential guessing; it is not
+      authentication strength. Says nothing about the password or whether IAM database
+      authentication is in use.
+
+  redshift-default-admin-check:
+    source: managed
+    identifier: REDSHIFT_DEFAULT_ADMIN_CHECK
+    description: >-
+      Redshift clusters do not use the default administrative username.
+    resource_types: [AWS::Redshift::Cluster]
+    controls:
+      nist_800_53_r5: [ia-5, ac-6]
+      ksi: [KSI-IAM-APM, KSI-IAM-ELP]
+    coverage: supporting
+    coverage_note: >-
+      Same limitation as the RDS equivalent: username hygiene, not authentication
+      strength.
+
+  root-account-hardware-mfa-enabled:
+    source: managed
+    identifier: ROOT_ACCOUNT_HARDWARE_MFA_ENABLED
+    description: >-
+      The account root user has a hardware MFA device enabled.
+    resource_types: [AWS::::Account]
+    controls:
+      nist_800_53_r5: [ia-2.1]
+      ksi: [KSI-IAM-APM]
+    coverage: full
+    coverage_note: >-
+      Unlike the general MFA rules this one DOES distinguish the factor, which is why
+      its coverage is full where theirs is partial. Evaluates once per account.
+
+  secretsmanager-rotation-enabled-check:
+    source: managed
+    identifier: SECRETSMANAGER_ROTATION_ENABLED_CHECK
+    description: >-
+      Secrets Manager secrets have rotation enabled.
+    resource_types: [AWS::SecretsManager::Secret]
+    controls:
+      nist_800_53_r5: [ia-5]
+      ksi: [KSI-IAM-APM]
+    coverage: partial
+    coverage_note: >-
+      Rotation being CONFIGURED, not that it has ever succeeded. Pair with
+      secretsmanager-scheduled-rotation-success-check, which is the one that sees
+      failures.
+
+  iam-group-has-users-check:
+    source: managed
+    identifier: IAM_GROUP_HAS_USERS_CHECK
+    not_in_aws_pack: >-
+      Real managed rule, absent from AWS's NIST r5 pack. Identifier UNVERIFIED against a published AWS artifact.
+    description: >-
+      IAM groups contain at least one user.
+    resource_types: [AWS::IAM::Group]
+    controls:
+      nist_800_53_r5: [ac-2]
+      ksi: [KSI-IAM-JIT]
+    coverage: supporting
+    coverage_note: >-
+      An empty group is unused configuration rather than a risk. Hygiene evidence for
+      account management; it evaluates nothing about permissions.
+
+  iam-user-no-policies-check:
+    source: managed
+    identifier: IAM_USER_NO_POLICIES_CHECK
+    not_in_aws_pack: >-
+      Real managed rule, absent from AWS's NIST r5 pack. Identifier UNVERIFIED.
+    description: >-
+      IAM policies are attached to groups or roles rather than directly to users.
+    resource_types: [AWS::IAM::User]
+    controls:
+      nist_800_53_r5: [ac-2, ac-6]
+      ksi: [KSI-IAM-JIT, KSI-IAM-ELP]
+    coverage: full
+
+  secretsmanager-scheduled-rotation-success-check:
+    source: managed
+    identifier: SECRETSMANAGER_SCHEDULED_ROTATION_SUCCESS_CHECK
+    not_in_aws_pack: >-
+      Real managed rule, absent from AWS's NIST r5 pack. Identifier UNVERIFIED.
+    description: >-
+      Scheduled Secrets Manager rotations completed successfully.
+    resource_types: [AWS::SecretsManager::Secret]
+    controls:
+      nist_800_53_r5: [ia-5]
+      ksi: [KSI-IAM-APM]
+    coverage: full
+    coverage_note: >-
+      The counterpart to secretsmanager-rotation-enabled-check: this one sees a
+      rotation that was configured and then FAILED, which the enabled-check reports as
+      compliant.

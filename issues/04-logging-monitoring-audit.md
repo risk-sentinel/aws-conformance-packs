@@ -23,6 +23,15 @@ labels: pack, domain:log
 `securityhub-enabled`, `vpc-flow-logs-enabled`, `elb-logging-enabled`,
 `rds-logging-enabled`, `redshift-cluster-configuration-check`
 
+**Reconciled from AWS's published pack (2026-09-08).** These are rules AWS's own
+NIST 800-53 Rev 5 conformance pack maps to this domain that the original research
+for this issue did not name. None is dropped for being irrelevant to a particular
+boundary — that judgement belongs to the boundary, not the catalog, and is made at
+pack-composition time with its reason recorded (see #20). Assignment rationale in
+`docs/dev/rule-reconciliation.yaml`.
+
+`api-gw-execution-logging-enabled`, `beanstalk-enhanced-health-reporting-enabled`, `cloudtrail-enabled`, `cloudwatch-alarm-action-check`, `elasticsearch-logs-to-cloudwatch`, `opensearch-logs-to-cloudwatch`, `rds-enhanced-monitoring-enabled`, `s3-event-notifications-enabled`, `wafv2-logging-enabled`
+
 ## ODPs in scope
 
 | ODP | Control | Binds to |
