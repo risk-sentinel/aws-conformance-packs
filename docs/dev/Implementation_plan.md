@@ -386,6 +386,26 @@ say what it was assessed against.
 `controls[]` array of 800-53 ids — **373 mappings**. This repo consumes that
 crosswalk and does not own its accuracy.
 
+**AWS's own pack is vendored as a verification source.**
+`vendor/aws/Operational-Best-Practices-for-NIST-800-53-rev-5.yaml` is AWS's
+published mapping of managed rules to Rev 5 — **130 rules, exactly the per-pack
+cap**, which independently confirms that a complete build cannot be one pack.
+
+A managed rule's `SourceIdentifier` and parameter names are asserted from
+documentation unless something checks them, and a wrong one **does not fail at
+generation** — it fails at `put-conformance-pack`, or it deploys and reports
+`INSUFFICIENT_DATA` forever, which reads as "not failing". The generator now
+refuses an identifier or parameter name AWS does not publish.
+
+**21 of our first 25 rules verified clean** — identifiers and every parameter
+name correct. The other four are real rules absent from that pack; each now
+carries `not_in_aws_pack:` with a stated reason, and they are listed in the
+coverage report under *Not verifiable against AWS's published pack* so an
+unverifiable rule never looks verified. It is a superset in one direction and a
+subset in the other — 58 of AWS's rules are for services our issues never name,
+and 25 of our candidates are newer than that pack — which is why the check has a
+declared escape rather than being absolute.
+
 **Derived, not transcribed.** `vendor/nist/nist-800-53r5-params.json` is a 226 KB
 index built by `tools/build_nist_index.py` from the three Rev 5 resolved
 baselines — 370 controls, 767 parameters, each with its canonical `_odp` id, its

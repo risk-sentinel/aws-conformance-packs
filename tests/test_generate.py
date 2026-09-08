@@ -402,3 +402,70 @@ def test_every_candidate_rule_named_in_the_issue_is_built():
         .split("## Candidate managed rules")[1].split("##")[0]
     cands = {c for c in re.findall(r"`([a-z0-9]+(?:-[a-z0-9]+)+)`", sec) if not c.isupper()}
     assert cands - set(NET["rules"]) == set()
+
+
+# --- verification against AWS's own published pack ---------------------------
+
+def test_aws_pack_loads_and_indexes_both_ways():
+    from tools import aws_pack
+    p = aws_pack.load()
+    assert len(p.rules_by_name) == 130          # exactly the per-pack service cap
+    r = p.get("iam-password-policy")
+    assert r.identifier == "IAM_PASSWORD_POLICY"
+    assert "MinimumPasswordLength" in r.parameters
+
+
+def test_wrong_identifier_refused(tmp_path):
+    """Does not fail at deploy time -- it reports INSUFFICIENT_DATA forever."""
+    import subprocess
+    r = rl(); r["rules"]["iam-password-policy"]["identifier"] = "IAM_PASSWORD_POLICY_V2"
+    (tmp_path / "iam.yaml").write_text(yaml.safe_dump(r))
+    proc = subprocess.run(
+        [sys.executable, str(ROOT / "generate.py"), "--overlay", str(ROOT / "overlays/vanilla.yaml"),
+         "--out", str(tmp_path / "out"), "--rules", str(tmp_path / "iam.yaml")],
+        capture_output=True, text=True, cwd=ROOT)
+    assert proc.returncode == 1
+    assert "AWS publishes" in proc.stderr
+
+
+def test_unpublished_parameter_name_refused(tmp_path):
+    """An unrecognised InputParameter is IGNORED at evaluation time, so the
+    threshold silently does not apply -- the rule passes on AWS's default."""
+    import subprocess
+    r = rl()
+    r["rules"]["iam-password-policy"]["parameters"]["MinPasswordLen"] = \
+        r["rules"]["iam-password-policy"]["parameters"].pop("MinimumPasswordLength")
+    (tmp_path / "iam.yaml").write_text(yaml.safe_dump(r))
+    proc = subprocess.run(
+        [sys.executable, str(ROOT / "generate.py"), "--overlay", str(ROOT / "overlays/vanilla.yaml"),
+         "--out", str(tmp_path / "out"), "--rules", str(tmp_path / "iam.yaml")],
+        capture_output=True, text=True, cwd=ROOT)
+    assert proc.returncode == 1
+    assert "not published for this rule" in proc.stderr
+
+
+def test_unknown_rule_needs_an_explicit_declaration(tmp_path):
+    import subprocess
+    r = rl()
+    r["rules"]["totally-made-up-rule"] = {
+        "source": "managed", "identifier": "TOTALLY_MADE_UP_RULE",
+        "description": "x", "resource_types": ["AWS::IAM::User"],
+        "controls": {"nist_800_53_r5": ["ia-5"], "ksi": ["KSI-IAM-APM"]},
+        "coverage": "full",
+    }
+    (tmp_path / "iam.yaml").write_text(yaml.safe_dump(r))
+    proc = subprocess.run(
+        [sys.executable, str(ROOT / "generate.py"), "--overlay", str(ROOT / "overlays/vanilla.yaml"),
+         "--out", str(tmp_path / "out"), "--rules", str(tmp_path / "iam.yaml")],
+        capture_output=True, text=True, cwd=ROOT)
+    assert proc.returncode == 1
+    assert "not_in_aws_pack" in proc.stderr
+
+
+def test_declared_exception_is_allowed_and_surfaced(tmp_path):
+    """The escape must be a stated reason, and it must reach the report --
+    an unverifiable rule that looks verified is the thing to avoid."""
+    assert _run_cli(tmp_path, ["--rules", str(ROOT / "rules/net.yaml")]) == 0
+    md = (tmp_path / "out/800-53r5-NET.coverage.md").read_text()
+    assert "Not verifiable against AWS's published pack" in md
+    assert "cloudfront-associated-with-waf" in md

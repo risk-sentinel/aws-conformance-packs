@@ -104,6 +104,11 @@ rules:
   secretsmanager-secret-periodic-rotation:
     source: managed
     identifier: SECRETSMANAGER_SECRET_PERIODIC_ROTATION
+    not_in_aws_pack: >-
+      A real managed rule, but absent from AWS's NIST 800-53 Rev 5 pack, which
+      predates it. Identifier and the maxDaysSinceRotation parameter are
+      UNVERIFIED against a published AWS artifact and must be confirmed on the
+      first live deploy.
     description: >-
       Secrets Manager secrets are rotated within the organization-defined period.
     resource_types: [AWS::SecretsManager::Secret]
@@ -117,6 +122,9 @@ rules:
   secretsmanager-secret-unused:
     source: managed
     identifier: SECRETSMANAGER_SECRET_UNUSED
+    not_in_aws_pack: >-
+      Real, but not carried in AWS's NIST r5 pack. Identifier and the
+      unusedForDays parameter are UNVERIFIED against a published AWS artifact.
     description: >-
       Secrets Manager secrets unaccessed beyond the organization-defined period
       are identified for review.

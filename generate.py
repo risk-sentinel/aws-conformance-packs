@@ -32,7 +32,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).parent))
 from tools.control_ids import is_control_id, normalize_control_id  # noqa: E402
-from tools import fedramp  # noqa: E402
+from tools import aws_pack, fedramp  # noqa: E402
 
 # Non-increasable AWS Config service limits.
 MAX_RULES_PER_PACK = 130
@@ -507,6 +507,15 @@ def emit(out_dir: Path, slug: str, template: dict, body: bytes, trace: list[dict
            "| Rule | Controls | Reason |\n|---|---|---|\n"
            + "".join(f"| `{e['rule']}` | {', '.join(e['controls'])} | {e['detail']} |\n"
                      for e in excluded) + "\n" if excluded else "")
+        + ("\n## Not verifiable against AWS's published pack\n\nThese rules are "
+           "real, but absent from AWS's own NIST 800-53 Rev 5 conformance pack, so "
+           "their identifier and parameter names could not be checked against a "
+           "published AWS artifact. A wrong identifier does not fail at deploy time "
+           "-- it reports `INSUFFICIENT_DATA` forever. Confirm these on first live "
+           "deploy.\n\n| Rule | Note |\n|---|---|\n"
+           + "".join(f"| `{n}` | {' '.join(r['not_in_aws_pack'].split())} |\n"
+                     for n, r in rules_doc["rules"].items() if r.get("not_in_aws_pack"))
+           + "\n" if any(r.get("not_in_aws_pack") for r in rules_doc["rules"].values()) else "")
         + ("\n## IPv6 evaluation\n\n| Rule | IPv6 evaluated |\n|---|---|\n"
            + "".join(f"| `{n}` | {r.get('ipv6_evaluated', 'not recorded')} |\n"
                      for n, r in rules_doc["rules"].items()
@@ -569,6 +578,7 @@ def main() -> int:
             raise GenerationError("no rule catalogs found under rules/")
 
         snap = fedramp.load()
+        awsp = aws_pack.load()
         resolved = resolve(catalog, overlay, oscal)
 
         for rf in rule_files:
@@ -597,6 +607,43 @@ def main() -> int:
                 # mnemonic form and nothing in this estate noticed. The second kills
                 # a plausible-looking but wrong assignment, which is the failure a
                 # shape-only check cannot see.
+                # Verify the managed rule against AWS's own published pack.
+                # An identifier or parameter name asserted from documentation and
+                # never checked is the defect class this catches: it does not fail
+                # at generation, it fails at put-conformance-pack -- or it deploys
+                # and reports INSUFFICIENT_DATA forever, which reads as "not
+                # failing" on every dashboard.
+                if rule.get("source") == "managed":
+                    known = awsp.get(name, rule.get("identifier"))
+                    excuse = rule.get("not_in_aws_pack")
+                    if known is None and not excuse:
+                        raise GenerationError(
+                            f"{rf}:{name}: neither the rule name nor identifier "
+                            f"{rule.get('identifier')!r} appears in AWS's published "
+                            f"NIST 800-53 Rev 5 pack. If the rule is real but newer "
+                            f"than that pack, say so explicitly with "
+                            f"`not_in_aws_pack: <reason>` -- an unverified identifier "
+                            f"does not fail at deploy time, it reports "
+                            f"INSUFFICIENT_DATA forever."
+                        )
+                    if known is not None:
+                        if known.identifier and rule.get("identifier") != known.identifier:
+                            raise GenerationError(
+                                f"{rf}:{name}: identifier is {rule.get('identifier')!r} "
+                                f"but AWS publishes {known.identifier!r} for this rule."
+                            )
+                        declared = {p.replace("{n}", "1")
+                                    for p in (rule.get("parameters") or {})}
+                        unknown = {d for d in declared if d not in known.parameters}
+                        if unknown and known.parameters:
+                            raise GenerationError(
+                                f"{rf}:{name}: parameter(s) {sorted(unknown)} are not "
+                                f"published for this rule. AWS accepts "
+                                f"{sorted(known.parameters)}. An unrecognised "
+                                f"InputParameter is ignored at evaluation time, so the "
+                                f"threshold silently does not apply."
+                            )
+
                 rule_controls = {normalize_control_id(c)
                                  for c in rule.get("controls", {}).get("nist_800_53_r5", [])}
                 for k in rule.get("controls", {}).get("ksi", []):

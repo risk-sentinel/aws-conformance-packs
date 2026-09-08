@@ -121,6 +121,11 @@ rules:
   internet-gateway-authorized-vpc-only:
     source: managed
     identifier: INTERNET_GATEWAY_AUTHORIZED_VPC_ONLY
+    not_in_aws_pack: >-
+      Real, but not in AWS's NIST r5 pack. Identifier and the AuthorizedVpcIds
+      parameter are UNVERIFIED against a published AWS artifact -- and this rule
+      fails closed on an empty list, so a wrong parameter name would produce a
+      pack-wide FAIL rather than a silent pass. Confirm on first deploy.
     description: >-
       Internet gateways are attached only to VPCs authorized to have one.
     resource_types: [AWS::EC2::VPC]
@@ -339,6 +344,10 @@ rules:
   cloudfront-associated-with-waf:
     source: managed
     identifier: CLOUDFRONT_ASSOCIATED_WITH_WAF
+    not_in_aws_pack: >-
+      Real, but not in AWS's NIST r5 pack. Takes no parameters, so the exposure
+      is the identifier alone: a wrong one reports INSUFFICIENT_DATA, which is
+      indistinguishable from a global resource recorded in another Region.
     description: >-
       CloudFront distributions are associated with a WAF web ACL.
     resource_types: [AWS::CloudFront::Distribution]
