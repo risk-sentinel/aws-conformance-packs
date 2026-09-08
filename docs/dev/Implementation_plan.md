@@ -8,19 +8,17 @@ per-organization ODP overlay. It is a *generator and a deployment pattern*, not 
 profile: there are no InSpec controls here. Evidence leaves this repo as Config
 rule evaluations, which `risk-sentinel/aws-config` converts to HDF.
 
-**Last updated:** 2026-09-08 (**SonarCloud onboarded; its first analysis found 18 real
-findings and they are fixed.** The project was never auto-created because the repo was
-**transferred** into the org rather than created in it — `clem-field/aws-conformance-packs`
-still returns a 301 — and SonarCloud's auto-import fires on creation. First analysis:
-4,674 lines, 0 bugs, 0 hotspots, **18 MAJOR vulnerabilities**, all
-`pythonsecurity:S8707`/`S8705` — CLI paths flowing into file reads, and `--profile`
-reaching a subprocess argv. Fixed rather than disputed: `docs/dev/issue_rules.md` makes
-fixing the default, and the exposure is modest only because "the caller is trusted", which
-is the assumption every path traversal rests on. `tools/safe_paths.py` validates every CLI
-path before anything is read. Notably the first version enforced containment inside the
-repo and **broke seven tests** that render a catalog from a temp directory — the same
-"guard that refuses valid work" mistake the preflight had just taught, caught this time
-before it cost a round trip.)
+**Last updated:** 2026-09-08 (**The preflight now PASSES for the IAM pack against a live
+account — the first time it has passed against real infrastructure, and the correct
+answer.** Asked to enable global resource recording on a production recorder, it turned
+out to be **already on**: that recorder uses `EXCLUSION_BY_RESOURCE_TYPES`, under which
+AWS records every supported type not on the exclusion list and
+`includeGlobalResourceTypes` is vestigial. `list-discovered-resources` confirmed IAM
+users, roles and policies are recorded. The preflight read the flag literally and
+refused — so **a guard written to prevent a silent misconfiguration would have caused a
+real, unnecessary change to production to satisfy it.** It is now strategy-aware.
+SonarCloud is also onboarded and `SonarCloud Code Analysis` is the **fifth required
+context**; its first analysis found 18 path-traversal findings, since fixed.)
 
 ---
 
@@ -79,6 +77,24 @@ decision, an omission without one is invisible.
 
 `tests/test_generate.py::test_every_candidate_rule_named_in_the_issue_is_built`
 now asserts this for NET, so the next silent shortfall fails the build.
+
+### A guard that refuses valid work
+
+Three times now a check here has refused something correct, and the pattern is
+worth naming because it recurs:
+
+| guard | refused | why |
+| --- | --- | --- |
+| recorder preflight | a valid deployment | it ignored the boundary and asserted resource types the composed packs no longer reference |
+| CLI path validation | seven passing tests | containment inside the repo, where an adopter's overlay legitimately lives outside |
+| global-resource check | a correctly configured recorder | it read `includeGlobalResourceTypes` literally, which is vestigial under the exclusion strategy |
+
+The third is the serious one: it would have had someone change a **production**
+recorder to satisfy a guard that was wrong. A guard that refuses valid work is
+one people learn to bypass, and a bypassed guard protects nothing.
+
+So a new check needs a **positive** control as well as a negative one — proof
+that it accepts what it should, not only that it rejects what it should not.
 
 ### Keeping the front door honest
 
