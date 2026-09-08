@@ -31,6 +31,8 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 START = "<!-- COVERAGE-TABLE:START -->"
 END = "<!-- COVERAGE-TABLE:END -->"
+REG_START = "<!-- PACK-REGISTRY:START -->"
+REG_END = "<!-- PACK-REGISTRY:END -->"
 
 
 def collect() -> tuple[list[tuple], dict]:
@@ -88,6 +90,59 @@ def render(limit: int | None = None) -> str:
     return "\n".join(out)
 
 
+def render_registry() -> str:
+    """The pack registry, from what actually renders.
+
+    It shipped as planning ESTIMATES and stayed that way after the packs were
+    built, so it claimed RPL was 12-18 rules when it is 25 and NET was 20-30 when
+    it is 34. An estimate left in place after the thing exists is not an estimate
+    any more; it is a wrong number in the front door.
+    """
+    rows = []
+    for f in sorted((ROOT / "rules").glob("*.yaml")):
+        doc = yaml.safe_load(f.read_text())
+        rules = doc["rules"]
+        controls, ksis, cov = set(), set(), {}
+        params = 0
+        for r in rules.values():
+            controls |= set(r["controls"].get("nist_800_53_r5", []))
+            ksis |= set(r["controls"].get("ksi", []))
+            cov[r["coverage"]] = cov.get(r["coverage"], 0) + 1
+            params += len(r.get("parameters") or {}) + len(r.get("tokens") or {})
+        rows.append((doc["domain"], len(rules), len(controls), params,
+                     len(ksis), cov, doc.get("region_scope", "-")))
+    out = [
+        "| Pack | Rules | Controls touched | ODP-bound params | 20x indicators | Scope |",
+        "| --- | ---: | ---: | ---: | ---: | --- |",
+    ]
+    for d, n, c, p, k, _cov, scope in sorted(rows):
+        out.append(f"| **{d}** | {n} | {c} | {p} | {k} | {scope} |")
+    out.append(f"| **GOV** | **0** | — | 7 | — | non-Config producer |")
+    tot_rules = sum(r[1] for r in rows)
+    out += [
+        "",
+        f"**{tot_rules} Config rules across {len(rows)} deployable packs.** Every pack is "
+        f"under the hard 130-rule cap; all of them together are {tot_rules} of the "
+        f"1000-per-Region-per-account ceiling.",
+        "",
+        "GOV emits **zero Config rules by design** — roughly 120 Moderate controls have no",
+        "resource-configuration signal, and it evidences those against policy artifacts",
+        "instead. See `gov/README.md`.",
+        "",
+        "Controls-touched **overlaps between packs and does not sum to a baseline**. It",
+        "counts controls a pack's rules crosswalk to, not controls satisfied — each pack's",
+        "generated `coverage.md` says which are `full`, `partial` or `supporting`, and what",
+        "each rule cannot see.",
+    ]
+    return "\n".join(out)
+
+
+def _splice(text: str, start: str, end: str, body: str) -> str:
+    head, rest = text.split(start, 1)
+    _, tail = rest.split(end, 1)
+    return f"{head}{start}\n\n{body}\n\n{end}{tail}"
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -101,12 +156,12 @@ def main() -> int:
 
     if args.write or args.check:
         text = readme.read_text()
-        if START not in text or END not in text:
-            print(f"::error::README.md has no {START} / {END} markers")
-            return 1
-        head, rest = text.split(START, 1)
-        _, tail = rest.split(END, 1)
-        new = f"{head}{START}\n\n{table}\n\n{END}{tail}"
+        for a, b in ((START, END), (REG_START, REG_END)):
+            if a not in text or b not in text:
+                print(f"::error::README.md has no {a} / {b} markers")
+                return 1
+        new = _splice(text, START, END, table)
+        new = _splice(new, REG_START, REG_END, render_registry())
         if args.check:
             if new != text:
                 print("::error::README.md coverage table is stale. Run "
