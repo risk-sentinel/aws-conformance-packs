@@ -379,5 +379,26 @@ def test_net_coverage_report_states_reachability_and_unmodeled(tmp_path):
     md = (tmp_path / "out/800-53r5-NET.coverage.md").read_text()
     assert "not as reachability" in md
     assert "Not modeled by any rule in this pack" in md
-    assert "KSI-CNA-RVP" in md          # DoS, deliberately not faked onto a WAF rule
+    # CNA-EIS stays unmodeled: redeploy-vs-modify is not a resource attribute.
+    assert "KSI-CNA-EIS" in md
     assert "IPv6 evaluation" in md
+
+
+def test_waf_rules_are_supporting_not_a_dos_claim():
+    """A WAF association is not sc-5. Shield subscription state is not even a
+    Config resource, so a PASS here must never read as DoS protection."""
+    t, _, _ = generate.render_pack(cat(), net(), generate.resolve(cat(), ov(), None), "moderate")
+    for logical in ("AlbWafEnabled", "ApiGwAssociatedWithWaf", "CloudfrontAssociatedWithWaf"):
+        d = t["Resources"][logical]["Properties"]["Description"]
+        assert "[coverage: supporting]" in d, logical
+    assert "never read a PASS here as" in t["Resources"]["AlbWafEnabled"]["Properties"]["Description"]
+
+
+def test_every_candidate_rule_named_in_the_issue_is_built():
+    """#3 named 18 candidates. The first pass built 8 and closed the issue, which
+    let the plan table redefine the target instead of meeting it."""
+    import re
+    sec = (ROOT / "issues/02-network-boundary.md").read_text() \
+        .split("## Candidate managed rules")[1].split("##")[0]
+    cands = {c for c in re.findall(r"`([a-z0-9]+(?:-[a-z0-9]+)+)`", sec) if not c.isupper()}
+    assert cands - set(NET["rules"]) == set()

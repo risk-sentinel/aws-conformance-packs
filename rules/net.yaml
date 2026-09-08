@@ -47,11 +47,6 @@ not_modeled:
     is redeployed rather than modified in place. That is not a resource attribute
     Config can read. It belongs to the VCM pack's change-management evidence or to
     attestation; forcing a rule onto it would manufacture a verdict.
-  KSI-CNA-RVP: >-
-    Reviewing Protections covers denial-of-service posture (sc-5). Shield Advanced
-    subscription state is not a Config resource, and WAF association rules cover
-    only ALB, API Gateway and CloudFront. Model as hybrid with an attestation
-    rather than claiming sc-5 from a WAF association.
   KSI-CNA-OFA: >-
     Optimizing for Availability is a design and capacity property, not a boundary
     configuration fact. Out of scope for this pack by intent.
@@ -62,6 +57,12 @@ required_resource_types:
   - AWS::EC2::Subnet
   - AWS::EC2::VPC
   - AWS::ElasticLoadBalancingV2::LoadBalancer
+  - AWS::EC2::Instance
+  - AWS::S3::Bucket
+  - AWS::RDS::DBInstance
+  - AWS::Redshift::Cluster
+  - AWS::ApiGateway::Stage
+  - AWS::CloudFront::Distribution
 
 rules:
 
@@ -199,3 +200,154 @@ rules:
     coverage_note: >-
       Covers the redirect only. Traffic that never traverses the load balancer,
       and any listener on a non-standard port, is out of scope.
+
+  restricted-ssh:
+    source: managed
+    identifier: INCOMING_SSH_DISABLED
+    description: >-
+      Security groups do not allow unrestricted ingress on TCP 22.
+    resource_types: [AWS::EC2::SecurityGroup]
+    controls:
+      nist_800_53_r5: [sc-7.5, sc-7]
+      ksi: [KSI-CNA-RNT, KSI-CNA-ULN]
+    coverage: partial
+    ipv6_evaluated: false
+    coverage_note: >-
+      Historically evaluates IPv4 CIDRs only, so a group open to ::/0 on port 22
+      can PASS. Object-level like the rest of this pack: it says nothing about
+      whether anything is actually reachable on that port.
+
+  ec2-instance-no-public-ip:
+    source: managed
+    identifier: EC2_INSTANCE_NO_PUBLIC_IP
+    description: >-
+      EC2 instances do not have a public IP address.
+    resource_types: [AWS::EC2::Instance]
+    controls:
+      nist_800_53_r5: [sc-7, sc-7.5]
+      ksi: [KSI-CNA-ULN, KSI-CNA-MAT]
+    coverage: full
+    ipv6_evaluated: false
+    coverage_note: >-
+      Evaluates the public IPv4 association only. An instance reachable over a
+      routable IPv6 address passes.
+
+  rds-instance-public-access-check:
+    source: managed
+    identifier: RDS_INSTANCE_PUBLIC_ACCESS_CHECK
+    description: >-
+      RDS instances are not publicly accessible.
+    resource_types: [AWS::RDS::DBInstance]
+    controls:
+      nist_800_53_r5: [sc-7, ac-4]
+      ksi: [KSI-CNA-ULN, KSI-IAM-ELP]
+    coverage: full
+    ipv6_evaluated: true
+
+  redshift-cluster-public-access-check:
+    source: managed
+    identifier: REDSHIFT_CLUSTER_PUBLIC_ACCESS_CHECK
+    description: >-
+      Redshift clusters are not publicly accessible.
+    resource_types: [AWS::Redshift::Cluster]
+    controls:
+      nist_800_53_r5: [sc-7, ac-4]
+      ksi: [KSI-CNA-ULN, KSI-IAM-ELP]
+    coverage: full
+    ipv6_evaluated: true
+
+  s3-bucket-public-read-prohibited:
+    source: managed
+    identifier: S3_BUCKET_PUBLIC_READ_PROHIBITED
+    description: >-
+      S3 buckets do not permit public read access.
+    resource_types: [AWS::S3::Bucket]
+    controls:
+      nist_800_53_r5: [ac-3, sc-7]
+      ksi: [KSI-IAM-ELP, KSI-CNA-ULN]
+    coverage: full
+    ipv6_evaluated: true
+    periodic: true
+    periodic_note: >-
+      Periodic as well as change-triggered. A bucket made public between
+      evaluations is invisible until the next run.
+
+  s3-bucket-public-write-prohibited:
+    source: managed
+    identifier: S3_BUCKET_PUBLIC_WRITE_PROHIBITED
+    description: >-
+      S3 buckets do not permit public write access.
+    resource_types: [AWS::S3::Bucket]
+    controls:
+      nist_800_53_r5: [ac-3, sc-7]
+      ksi: [KSI-IAM-ELP, KSI-CNA-ULN]
+    coverage: full
+    ipv6_evaluated: true
+    periodic: true
+    periodic_note: >-
+      Periodic as well as change-triggered; drift between evaluations is invisible.
+
+  s3-account-level-public-access-blocks-periodic:
+    source: managed
+    identifier: S3_ACCOUNT_LEVEL_PUBLIC_ACCESS_BLOCKS_PERIODIC
+    description: >-
+      Account-level S3 Block Public Access is enabled.
+    resource_types: [AWS::S3::AccountPublicAccessBlock]
+    controls:
+      nist_800_53_r5: [ac-3, sc-7]
+      ksi: [KSI-IAM-ELP, KSI-CNA-ULN]
+    coverage: full
+    ipv6_evaluated: true
+    periodic: true
+    periodic_note: >-
+      Evaluates ONCE PER ACCOUNT rather than per bucket, so in an aggregated view
+      this is a single finding covering the whole account.
+
+  alb-waf-enabled:
+    source: managed
+    identifier: ALB_WAF_ENABLED
+    description: >-
+      Application load balancers are associated with a WAF web ACL.
+    resource_types: [AWS::ElasticLoadBalancingV2::LoadBalancer]
+    controls:
+      nist_800_53_r5: [sc-5, sc-7]
+      ksi: [KSI-CNA-RVP, KSI-CNA-ULN]
+    coverage: supporting
+    ipv6_evaluated: true
+    coverage_note: >-
+      A WAF ASSOCIATION is not denial-of-service protection. It says nothing about
+      the rules in the web ACL, whether they are in block or count mode, or
+      whether Shield Advanced is subscribed — and Shield state is not a Config
+      resource at all. Supporting evidence toward sc-5; never read a PASS here as
+      sc-5 being met.
+
+  api-gw-associated-with-waf:
+    source: managed
+    identifier: API_GW_ASSOCIATED_WITH_WAF
+    description: >-
+      API Gateway stages are associated with a WAF web ACL.
+    resource_types: [AWS::ApiGateway::Stage]
+    controls:
+      nist_800_53_r5: [sc-5, sc-7]
+      ksi: [KSI-CNA-RVP, KSI-CNA-ULN]
+    coverage: supporting
+    ipv6_evaluated: true
+    coverage_note: >-
+      Association only, and the same caveat as alb-waf-enabled: the web ACL's
+      contents and mode are invisible to this rule.
+
+  cloudfront-associated-with-waf:
+    source: managed
+    identifier: CLOUDFRONT_ASSOCIATED_WITH_WAF
+    description: >-
+      CloudFront distributions are associated with a WAF web ACL.
+    resource_types: [AWS::CloudFront::Distribution]
+    controls:
+      nist_800_53_r5: [sc-5, sc-7]
+      ksi: [KSI-CNA-RVP, KSI-CNA-ULN]
+    coverage: supporting
+    ipv6_evaluated: true
+    coverage_note: >-
+      Association only. CloudFront is a GLOBAL resource type recorded in one
+      Region; in every other Region this reports INSUFFICIENT_DATA rather than
+      failing.

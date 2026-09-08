@@ -9,7 +9,7 @@ profile: there are no InSpec controls here. Evidence leaves this repo as Config
 rule evaluations, which `risk-sentinel/aws-config` converts to HDF.
 
 **Last updated:** 2026-09-08 (**Phase 2 begun: NET (#3) is the first full domain
-catalog.** 8 rules, and it forced two capabilities the generator lacked. A `list`
+catalog.** 18 rules — every candidate the issue names — and it forced two capabilities the generator lacked. A `list`
 ODP type, because `RESTRICTED_INCOMING_TRAFFIC` takes `blockedPort1..blockedPort5`
 as five discrete parameters — a sixth port does not error at deploy time, it is
 simply never rendered, so it goes unchecked while appearing configured. Both the
@@ -66,6 +66,20 @@ workflow and hard guardrails. Two apply with particular force here:
   produce FedRAMP evidence; a suppressed finding changes what the package
   asserts.
 
+### Delivering the whole issue
+
+A first pass at NET built **8 of the 18 candidate rules issue #3 names**, against
+an estimate of 20–30, and the PR said `Closes #3`. Nothing was wrong with the 8;
+what was wrong is that stopping there and closing the issue let the status table
+redefine the target as "8 built" rather than record a shortfall.
+
+Scaling an issue down is the owner's call. If a candidate is deliberately not
+built, say which and why in the PR — an omission with a stated reason is a
+decision, an omission without one is invisible.
+
+`tests/test_generate.py::test_every_candidate_rule_named_in_the_issue_is_built`
+now asserts this for NET, so the next silent shortfall fails the build.
+
 ### PR ceremony
 
 **Every PR updates this file.** The plan is the repository's memory of what is
@@ -97,7 +111,7 @@ checklist.
 | Tracking issues | **9 filed** — #1 epic, #2–#8 domains, **#9 Phase 0** (active) |
 | Generator (`generate.py`) | **Built** (#13) — resolves, renders, validates, emits 5 artifacts. 22 tests |
 | ODP catalog (`odp/catalog.yaml`) | **11 ODPs** — IAM (7) + NET (4), including the first `list` type with a hard slot cap |
-| Rule catalogs (`rules/<domain>.yaml`) | **2 / 6** — `iam.yaml` (7 rules, partial; #2 open) and `net.yaml` (8 rules, #3). 15 rules total |
+| Rule catalogs (`rules/<domain>.yaml`) | **2 / 6** — `iam.yaml` (7 rules, partial; #2 open) and `net.yaml` (18 rules, #3). 25 rules total |
 | Guard policies (`guard/`) | **Not started** — first needed by CRYPTO (#4) |
 | Overlays (`overlays/`) | **3** — `vanilla.yaml` (moderate), `vanilla-low.yaml`, `vanilla-high.yaml`. All three generate; Low records 2 exclusions |
 | Repo CI | **5 workflows.** secret-scan (+ fixture canary), pack-lint, CodeQL (python), 2 HDF emitters |
@@ -414,7 +428,7 @@ table.
 | Issue | Pack | Est. rules | ODPs | Why this order |
 |---|---|---|---|---|
 | [#2](https://github.com/risk-sentinel/aws-conformance-packs/issues/2) | **IAM** | 25–35 | 7 | Highest ODP density in the program — it exercises the catalog hardest and shakes out the schema first. Region-pinning for global resources is a pattern every later pack inherits |
-| [#3](https://github.com/risk-sentinel/aws-conformance-packs/issues/3) | **NET** | 8 built | 4 | **DONE.** Port-list capacity proved the `list` type and the slot cap. Domain caveat: Config evaluates boundary components as objects, not reachability |
+| [#3](https://github.com/risk-sentinel/aws-conformance-packs/issues/3) | **NET** | **18 built** | 4 | **DONE.** Port-list capacity proved the `list` type and the slot cap. Domain caveat: Config evaluates boundary components as objects, not reachability |
 | [#4](https://github.com/risk-sentinel/aws-conformance-packs/issues/4) | **CRYPTO** | 25–35 | 4 | **First Guard-heavy pack.** KMS rotation period and min-TLS have no managed-rule parameter, so this is where `CUSTOM_POLICY` token substitution and the S3-hosted-template threshold get proven |
 | [#5](https://github.com/risk-sentinel/aws-conformance-packs/issues/5) | **LOG** | 30–40 | 3 | Largest rule count and where Config cost explodes — model the bill before org rollout |
 | [#6](https://github.com/risk-sentinel/aws-conformance-packs/issues/6) | **VCM** | 25–35 | 3 | First `evidence_only_odps` user |
