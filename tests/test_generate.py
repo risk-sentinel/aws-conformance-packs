@@ -1179,3 +1179,91 @@ def test_a_service_with_no_published_regions_is_treated_as_available():
         services=c.services, by_resource_type={"X::Y::Z": empty.service_id},
         account_level=frozenset(), all_regions=c.all_regions)
     assert not fake.unavailable_in("X::Y::Z", "us-east-1")
+
+
+# --- #20 completion: a boundary's CDEF list drives composition ---------------
+
+def _bnd(services):
+    from tools import boundary as bm
+    from tools import aws_services
+    return bm.resolve({"boundary": {"services": services}}, set(aws_services.load().services))
+
+
+def test_no_boundary_means_no_filtering_not_an_empty_boundary():
+    """Reading 'unconfigured' as 'nothing is in scope' would drop every rule."""
+    from tools import boundary as bm, aws_services
+    b = bm.resolve({}, set(aws_services.load().services))
+    assert not b.declared
+
+
+def test_boundary_excludes_rules_for_services_it_does_not_run():
+    from tools import aws_services
+    svc = aws_services.load()
+    rpl = yaml.safe_load((ROOT / "rules/rpl.yaml").read_text())
+    t, _, excluded = generate.render_pack(
+        cat(), rpl, generate.resolve(cat(), ov(), None), "moderate",
+        region=None, svc=svc, bnd=_bnd(["S3", "RDS"]))
+    names = {e["rule"] for e in excluded}
+    assert "dynamodb-pitr-enabled" in names          # DynamoDB not in the boundary
+    assert "rds-in-backup-plan" not in names          # RDS is
+    assert all(e["reason"] and e["detail"] for e in excluded), \
+        "an exclusion must say why and what it cost"
+
+
+def test_a_rule_spanning_several_services_survives_if_the_boundary_runs_one():
+    """Excluding on ANY resource type being outside would drop rules that still
+    apply, which is a silent narrowing dressed as scoping."""
+    from tools import aws_services
+    svc = aws_services.load()
+    doc = {"domain": "T", "pack_slug": "t", "rules": {
+        "spans-two": {"source": "managed", "identifier": "S3_BUCKET_LOGGING_ENABLED",
+                      "description": "x",
+                      "resource_types": ["AWS::S3::Bucket", "AWS::DynamoDB::Table"],
+                      "controls": {"nist_800_53_r5": ["au-2"], "ksi": ["KSI-MLA-LET"]},
+                      "coverage": "full"}}}
+    _, _, excluded = generate.render_pack(
+        cat(), doc, generate.resolve(cat(), ov(), None), "moderate",
+        region=None, svc=svc, bnd=_bnd(["S3"]))
+    assert not excluded, "the boundary runs S3, so the rule still applies"
+
+
+def test_unknown_service_in_the_boundary_is_refused():
+    from tools import boundary as bm, aws_services
+    with pytest.raises(bm.BoundaryError, match="does not contain"):
+        bm.resolve({"boundary": {"services": ["NotAService"]}},
+                   set(aws_services.load().services))
+
+
+def test_unresolvable_cdef_refuses_rather_than_shrinking_the_boundary(tmp_path):
+    """A custom CDEF declares `type: service` with a human title and NO props.
+    Matching by title is the guesswork that resolved AWS::RDS::* to DocDB, and
+    silently skipping it would shrink the boundary -- so a smaller pack would
+    look like a deliberate scoping decision."""
+    from tools import boundary as bm, aws_services
+    d = tmp_path / "cdefs"; d.mkdir()
+    (d / "alb.json").write_text(json.dumps({"component-definition": {"components": [
+        {"type": "service", "title": "AWS Application Load Balancer"}]}}))
+    with pytest.raises(bm.BoundaryError, match="cannot be built without guessing"):
+        bm.resolve({"boundary": {"cdef_dir": str(d)}},
+                   set(aws_services.load().services), Path("/"))
+
+
+def test_awslabs_cdefs_resolve_exactly(tmp_path):
+    """awslabs service CDEFs carry a service-id, so they need no guessing."""
+    from tools import boundary as bm, aws_services
+    d = tmp_path / "cdefs"; d.mkdir()
+    (d / "s3.oscal.json").write_text(json.dumps({"component-definition": {"components": [
+        {"type": "service", "title": "Amazon Simple Storage Service",
+         "props": [{"name": "service-id", "value": "S3"}]}]}}))
+    b = bm.resolve({"boundary": {"cdef_dir": str(d)}},
+                   set(aws_services.load().services), Path("/"))
+    assert b.services == frozenset({"S3"})
+    assert "CDEF" in b.sources["S3"]
+
+
+def test_empty_cdef_dir_refuses_rather_than_excluding_everything(tmp_path):
+    from tools import boundary as bm, aws_services
+    d = tmp_path / "empty"; d.mkdir()
+    with pytest.raises(bm.BoundaryError, match="would exclude every rule"):
+        bm.resolve({"boundary": {"cdef_dir": str(d)}},
+                   set(aws_services.load().services), Path("/"))
