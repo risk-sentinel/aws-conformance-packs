@@ -79,6 +79,20 @@ decision, an omission without one is invisible.
 `tests/test_generate.py::test_every_candidate_rule_named_in_the_issue_is_built`
 now asserts this for NET, so the next silent shortfall fails the build.
 
+### Keeping the front door honest
+
+Two README tables are **generated** by `tools/coverage_report.py`, and CI fails
+when either drifts from the catalogs:
+
+- **per-resource-type coverage** — what a team gets for the services it runs
+- **the pack registry** — rules, controls, ODP-bound parameters per pack
+
+Both were hand-written first, and the registry proves why that does not hold: it
+shipped as planning estimates and stayed that way after the packs were built,
+claiming RPL was 12–18 rules when it is 25 and NET 20–30 when it is 34. An
+estimate left in place after the thing exists is not an estimate any more; it is
+a wrong number in the front door.
+
 ### PR ceremony
 
 **Every PR updates this file.** The plan is the repository's memory of what is
