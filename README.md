@@ -298,22 +298,6 @@ version-stamped into every evidence file. 20x changes until High locks around
 2027-02; `tools/sync_fedramp.py --check` runs weekly so drift is a failing job
 rather than a question from an assessor.
 
-## Working the issues
-
-Domain issue bodies live in `issues/`. To create them with labels:
-
-```bash
-DRY_RUN=1 ./scripts/create-issues.sh                    # preview
-REPO=clem-field/aws-conformance-packs ./scripts/create-issues.sh
-```
-
-The script creates the label set first, skips issues whose titles are already
-open, and reads title/labels from each file's front matter.
-
-Each domain issue carries its scope, candidate managed rules, ODP bindings, the
-domain-specific gotchas found during research, and acceptance criteria. Work one
-pack per issue; the epic tracks cross-cutting constraints.
-
 ## Contributing a rule
 
 1. **Add the ODP to `odp/catalog.yaml`** if the knob is new. Key it by our name and
