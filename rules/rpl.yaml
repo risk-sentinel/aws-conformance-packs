@@ -1,0 +1,381 @@
+# Rule catalog — Resilience & Recovery (RPL).
+#
+# ---------------------------------------------------------------------------
+# A BACKUP PLAN IS NOT BACKUP COVERAGE
+# ---------------------------------------------------------------------------
+# backup-plan-min-frequency-and-min-retention-check evaluates the PLAN. A
+# perfectly compliant plan protecting zero resources passes it. On its own it
+# certifies an empty promise.
+#
+# The *-in-backup-plan rules are what evidence that anything is actually
+# protected. Both halves are carried here, and a reader of these results needs
+# both: plan compliance without coverage is a number about a document.
+#
+# ---------------------------------------------------------------------------
+# RTO AND RPO HAVE NO CONFIGURATION SIGNAL
+# ---------------------------------------------------------------------------
+# Backup frequency is a weak proxy for RPO and says nothing about time-to-restore.
+# The RTO ODP is therefore declared evidence-only, and KSI-RPL-TRC (testing
+# recovery) is not modeled at all -- a restore test is a process artifact.
+
+version: 1
+domain: RPL
+pack_slug: 800-53r5-RPL
+region_scope: regional
+
+domain_caveat: >-
+  Almost everything here evidences that a recovery CAPABILITY is configured, not
+  that recovery has ever been demonstrated. A backup plan can be fully compliant
+  while protecting nothing; versioning and replication appear under CP-9 in
+  published crosswalks and are neither backups nor recovery points; and multi-AZ
+  is failover within a Region, which shortens an outage and does nothing for a
+  corrupted or deleted dataset. Recovery objectives and restore testing have no
+  configuration signal and are carried as evidence-only or not modeled.
+
+not_modeled:
+  KSI-RPL-TRC: >-
+    Testing Recovery Capabilities is a process artifact. Restore-test evidence
+    comes from the runbook or CI producer; nothing in resource configuration
+    shows that a restore was ever performed, let alone succeeded.
+  KSI-RPL-ARP: >-
+    Aligning Recovery Plan concerns the existence and currency of a documented
+    plan. That is a policy artifact belonging to the GOV producer, not a resource
+    attribute.
+
+required_resource_types:
+  - AWS::Backup::BackupPlan
+  - AWS::Backup::RecoveryPoint
+  - AWS::RDS::DBInstance
+  - AWS::DynamoDB::Table
+  - AWS::EC2::Volume
+
+rules:
+
+  backup-plan-min-frequency-and-min-retention-check:
+    source: managed
+    identifier: BACKUP_PLAN_MIN_FREQUENCY_AND_MIN_RETENTION_CHECK
+    not_in_aws_pack: >-
+      Real managed rule, absent from AWS's NIST r5 pack. Identifier and all THREE
+      parameters are UNVERIFIED -- and requiredFrequencyValue/Unit carry an ODP, so a
+      wrong parameter name means the backup frequency floor silently does not apply.
+    description: >-
+      Backup plans meet the organization-defined minimum frequency and retention.
+    resource_types: [AWS::Backup::BackupPlan]
+    controls:
+      nist_800_53_r5: [cp-9]
+      ksi: [KSI-RPL-ABO]
+    coverage: partial
+    coverage_note: >-
+      EVALUATES THE PLAN, NOT ITS COVERAGE. A perfectly compliant plan protecting ZERO
+      resources passes this rule. On its own it certifies an empty promise -- the
+      *-in-backup-plan rules are what evidence that anything is actually protected, and
+      both are needed.
+    parameters:
+      requiredRetentionDays: { odp: backup_minimum_retention_days }
+      requiredFrequencyValue: { odp: backup_minimum_frequency, derive: value }
+      requiredFrequencyUnit: { odp: backup_minimum_frequency, derive: unit }
+  backup-recovery-point-minimum-retention-check:
+    source: managed
+    identifier: BACKUP_RECOVERY_POINT_MINIMUM_RETENTION_CHECK
+    not_in_aws_pack: >-
+      Real managed rule, absent from AWS's NIST r5 pack. Identifier and
+      requiredRetentionDays are UNVERIFIED; a wrong parameter name means the retention
+      floor silently does not apply.
+    description: >-
+      Recovery points meet the organization-defined minimum retention.
+    resource_types: [AWS::Backup::RecoveryPoint]
+    controls:
+      nist_800_53_r5: [cp-9]
+      ksi: [KSI-RPL-ABO]
+    coverage: full
+    parameters:
+      requiredRetentionDays: { odp: recovery_point_retention_days }
+  backup-recovery-point-encrypted:
+    source: managed
+    identifier: BACKUP_RECOVERY_POINT_ENCRYPTED
+    not_in_aws_pack: >-
+      Real managed rule, absent from AWS's NIST r5 pack. Identifier UNVERIFIED against a
+      published AWS artifact.
+    description: >-
+      Backup recovery points are encrypted.
+    resource_types: [AWS::Backup::RecoveryPoint]
+    controls:
+      nist_800_53_r5: [cp-9]
+      ksi: [KSI-RPL-ABO]
+    coverage: full
+    coverage_note: >-
+      Encryption of the backup itself. The CRYPTO pack covers the source resources; a
+      backup is a second copy of the same data and is easy to leave out of a
+      data-protection claim.
+  backup-recovery-point-manual-deletion-disabled:
+    source: managed
+    identifier: BACKUP_RECOVERY_POINT_MANUAL_DELETION_DISABLED
+    not_in_aws_pack: >-
+      Real managed rule, absent from AWS's NIST r5 pack. Identifier UNVERIFIED against a
+      published AWS artifact.
+    description: >-
+      Backup vault policies prevent manual deletion of recovery points.
+    resource_types: [AWS::Backup::BackupVault]
+    controls:
+      nist_800_53_r5: [cp-9]
+      ksi: [KSI-RPL-ABO]
+    coverage: full
+    coverage_note: >-
+      The closest thing in this pack to ransomware resilience: a backup an operator can
+      delete is a backup an attacker with that operator's credentials can delete.
+  ebs-in-backup-plan:
+    source: managed
+    identifier: EBS_IN_BACKUP_PLAN
+    description: >-
+      EBS volumes are in a backup plan.
+    resource_types: [AWS::EC2::Volume]
+    controls:
+      nist_800_53_r5: [cp-9]
+      ksi: [KSI-RPL-ABO]
+    coverage: full
+    coverage_note: >-
+      A COVERAGE rule. These are what make the plan rules meaningful.
+  efs-in-backup-plan:
+    source: managed
+    identifier: EFS_IN_BACKUP_PLAN
+    description: >-
+      EFS file systems are in a backup plan.
+    resource_types: [AWS::EFS::FileSystem]
+    controls:
+      nist_800_53_r5: [cp-9]
+      ksi: [KSI-RPL-ABO]
+    coverage: full
+  dynamodb-in-backup-plan:
+    source: managed
+    identifier: DYNAMODB_IN_BACKUP_PLAN
+    description: >-
+      DynamoDB tables are in a backup plan.
+    resource_types: [AWS::DynamoDB::Table]
+    controls:
+      nist_800_53_r5: [cp-9]
+      ksi: [KSI-RPL-ABO]
+    coverage: full
+  rds-in-backup-plan:
+    source: managed
+    identifier: RDS_IN_BACKUP_PLAN
+    not_in_aws_pack: >-
+      Real managed rule, absent from AWS's NIST r5 pack. Identifier UNVERIFIED against a
+      published AWS artifact.
+    description: >-
+      RDS instances are in a backup plan.
+    resource_types: [AWS::RDS::DBInstance]
+    controls:
+      nist_800_53_r5: [cp-9]
+      ksi: [KSI-RPL-ABO]
+    coverage: full
+  db-instance-backup-enabled:
+    source: managed
+    identifier: DB_INSTANCE_BACKUP_ENABLED
+    description: >-
+      RDS instances have automated backups enabled.
+    resource_types: [AWS::RDS::DBInstance]
+    controls:
+      nist_800_53_r5: [cp-9]
+      ksi: [KSI-RPL-ABO]
+    coverage: full
+  dynamodb-pitr-enabled:
+    source: managed
+    identifier: DYNAMODB_PITR_ENABLED
+    description: >-
+      DynamoDB tables have point-in-time recovery enabled.
+    resource_types: [AWS::DynamoDB::Table]
+    controls:
+      nist_800_53_r5: [cp-9]
+      ksi: [KSI-RPL-ABO]
+    coverage: full
+    coverage_note: >-
+      PITR is the closest thing to a real RPO signal in this pack, giving second-level
+      recovery granularity -- but it still evidences capability, not a tested objective.
+  elasticache-redis-cluster-automatic-backup-check:
+    source: managed
+    identifier: ELASTICACHE_REDIS_CLUSTER_AUTOMATIC_BACKUP_CHECK
+    description: >-
+      ElastiCache Redis clusters have automatic backup enabled.
+    resource_types: [AWS::ElastiCache::ReplicationGroup]
+    controls:
+      nist_800_53_r5: [cp-9]
+      ksi: [KSI-RPL-ABO]
+    coverage: full
+  redshift-backup-enabled:
+    source: managed
+    identifier: REDSHIFT_BACKUP_ENABLED
+    description: >-
+      Redshift clusters have automated snapshots enabled.
+    resource_types: [AWS::Redshift::Cluster]
+    controls:
+      nist_800_53_r5: [cp-9]
+      ksi: [KSI-RPL-ABO]
+    coverage: full
+  s3-bucket-versioning-enabled:
+    source: managed
+    identifier: S3_BUCKET_VERSIONING_ENABLED
+    description: >-
+      S3 buckets have versioning enabled.
+    resource_types: [AWS::S3::Bucket]
+    controls:
+      nist_800_53_r5: [cp-9]
+      ksi: [KSI-RPL-ABO]
+    coverage: supporting
+    coverage_note: >-
+      VERSIONING IS NOT A BACKUP. It appears under CP-9 in many published crosswalks and
+      does not belong there: versions live in the same bucket, under the same policy,
+      deletable by the same principal. Supporting evidence at most.
+  s3-bucket-replication-enabled:
+    source: managed
+    identifier: S3_BUCKET_REPLICATION_ENABLED
+    description: >-
+      S3 buckets have cross-region replication enabled.
+    resource_types: [AWS::S3::Bucket]
+    controls:
+      nist_800_53_r5: [cp-9, cp-10]
+      ksi: [KSI-RPL-ABO, KSI-RPL-RRO]
+    coverage: supporting
+    coverage_note: >-
+      Replication propagates deletions and corruption as faithfully as it propagates
+      data. It is availability and locality, not a recovery point.
+  s3-version-lifecycle-policy-check:
+    source: managed
+    identifier: S3_VERSION_LIFECYCLE_POLICY_CHECK
+    description: >-
+      S3 buckets have a lifecycle policy for object versions.
+    resource_types: [AWS::S3::Bucket]
+    controls:
+      nist_800_53_r5: [cp-9]
+      ksi: [KSI-RPL-ABO]
+    coverage: supporting
+    coverage_note: >-
+      Storage lifecycle management rather than recovery capability.
+  rds-multi-az-support:
+    source: managed
+    identifier: RDS_MULTI_AZ_SUPPORT
+    description: >-
+      RDS instances are deployed across multiple Availability Zones.
+    resource_types: [AWS::RDS::DBInstance]
+    controls:
+      nist_800_53_r5: [cp-10]
+      ksi: [KSI-RPL-RRO]
+    coverage: supporting
+    coverage_note: >-
+      Multi-AZ is failover within a Region, not recovery from data loss. It shortens
+      outage duration and does nothing for a corrupted or deleted dataset.
+  rds-cluster-multi-az-enabled:
+    source: managed
+    identifier: RDS_CLUSTER_MULTI_AZ_ENABLED
+    description: >-
+      RDS clusters are deployed across multiple Availability Zones.
+    resource_types: [AWS::RDS::DBCluster]
+    controls:
+      nist_800_53_r5: [cp-10]
+      ksi: [KSI-RPL-RRO]
+    coverage: supporting
+    coverage_note: >-
+      Same limitation as the instance rule.
+  elb-cross-zone-load-balancing-enabled:
+    source: managed
+    identifier: ELB_CROSS_ZONE_LOAD_BALANCING_ENABLED
+    description: >-
+      Classic load balancers have cross-zone balancing enabled.
+    resource_types: [AWS::ElasticLoadBalancing::LoadBalancer]
+    controls:
+      nist_800_53_r5: [cp-10]
+      ksi: [KSI-RPL-RRO]
+    coverage: supporting
+    coverage_note: >-
+      Even traffic distribution across zones, which improves behaviour when a zone
+      degrades. It is not recovery and does not evidence any recovery objective.
+  autoscaling-group-elb-healthcheck-required:
+    source: managed
+    identifier: AUTOSCALING_GROUP_ELB_HEALTHCHECK_REQUIRED
+    description: >-
+      Auto Scaling groups using a load balancer use ELB health checks.
+    resource_types: [AWS::AutoScaling::AutoScalingGroup]
+    controls:
+      nist_800_53_r5: [cp-10]
+      ksi: [KSI-RPL-RRO]
+    coverage: supporting
+    coverage_note: >-
+      Without ELB health checks an ASG replaces only instances that fail EC2 status
+      checks, so an application that is up but not serving is never replaced.
+  elb-deletion-protection-enabled:
+    source: managed
+    identifier: ELB_DELETION_PROTECTION_ENABLED
+    description: >-
+      Load balancers have deletion protection enabled.
+    resource_types: [AWS::ElasticLoadBalancingV2::LoadBalancer]
+    controls:
+      nist_800_53_r5: [cp-10]
+      ksi: [KSI-RPL-RRO]
+    coverage: supporting
+    coverage_note: >-
+      Guards against accidental deletion, not against failure.
+  rds-instance-deletion-protection-enabled:
+    source: managed
+    identifier: RDS_INSTANCE_DELETION_PROTECTION_ENABLED
+    description: >-
+      RDS instances have deletion protection enabled.
+    resource_types: [AWS::RDS::DBInstance]
+    controls:
+      nist_800_53_r5: [cp-10]
+      ksi: [KSI-RPL-RRO]
+    coverage: supporting
+    coverage_note: >-
+      Guards against accidental deletion of the instance. It protects the resource, not
+      the data, and does nothing for corruption.
+  dynamodb-autoscaling-enabled:
+    source: managed
+    identifier: DYNAMODB_AUTOSCALING_ENABLED
+    description: >-
+      DynamoDB tables have auto scaling enabled.
+    resource_types: [AWS::DynamoDB::Table]
+    controls:
+      nist_800_53_r5: [cp-10]
+      ksi: [KSI-RPL-RRO]
+    coverage: supporting
+    coverage_note: >-
+      Capacity elasticity, not recovery.
+  dynamodb-throughput-limit-check:
+    source: managed
+    identifier: DYNAMODB_THROUGHPUT_LIMIT_CHECK
+    description: >-
+      DynamoDB provisioned throughput is within account limits.
+    resource_types: [AWS::DynamoDB::Table]
+    controls:
+      nist_800_53_r5: [cp-10]
+      ksi: [KSI-RPL-RRO]
+    coverage: supporting
+    coverage_note: >-
+      Capacity headroom. Availability adjacent at best.
+  lambda-dlq-check:
+    source: managed
+    identifier: LAMBDA_DLQ_CHECK
+    description: >-
+      Lambda functions have a dead-letter queue configured.
+    resource_types: [AWS::Lambda::Function]
+    controls:
+      nist_800_53_r5: [cp-10]
+      ksi: [KSI-RPL-RRO]
+    coverage: supporting
+    coverage_note: >-
+      Preserves failed invocations for reprocessing, which is durability of work in
+      flight rather than system recovery.
+  autoscaling-multiple-az:
+    source: managed
+    identifier: AUTOSCALING_MULTIPLE_AZ
+    not_in_aws_pack: >-
+      Real managed rule, absent from AWS's NIST r5 pack. Identifier UNVERIFIED against a
+      published AWS artifact.
+    description: >-
+      Auto Scaling groups span multiple Availability Zones.
+    resource_types: [AWS::AutoScaling::AutoScalingGroup]
+    controls:
+      nist_800_53_r5: [cp-10]
+      ksi: [KSI-RPL-RRO]
+    coverage: supporting
+    coverage_note: >-
+      Zone spread for capacity, which shortens an outage. It is not recovery from data
+      loss.

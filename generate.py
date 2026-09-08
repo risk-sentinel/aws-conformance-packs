@@ -88,6 +88,19 @@ def _violates(value, odp: dict) -> str | None:
         return f"{value!r} is not one of {con.get('values')}"
     elif typ == "string" and not isinstance(value, str):
         return f"expected a string, got {type(value).__name__} ({value!r})"
+    elif typ == "duration":
+        if not isinstance(value, dict) or set(value) != {"value", "unit"}:
+            return f"expected a mapping with exactly `value` and `unit`, got {value!r}"
+        v, u = value["value"], value["unit"]
+        if isinstance(v, bool) or not isinstance(v, int):
+            return f"value {v!r} is not an integer"
+        units = con.get("units") or []
+        if u not in units:
+            return f"unit {u!r} is not one of {units}"
+        if (lo := con.get("min")) is not None and v < lo:
+            return f"{v} is below the minimum of {lo}"
+        if (hi := con.get("max")) is not None and v > hi:
+            return f"{v} is above the maximum of {hi}"
     elif typ == "list":
         if not isinstance(value, list):
             return f"expected a list, got {type(value).__name__} ({value!r})"
@@ -349,6 +362,35 @@ def render_pack(catalog: dict, rules_doc: dict, resolved: dict[str, Resolved],
                         "Fn::Not": [{"Fn::Equals": ["", {"Ref": cfn_name}]}]}
                     rule_params[slot] = {
                         "Fn::If": [cond_name, {"Ref": cfn_name}, {"Ref": "AWS::NoValue"}]}
+            elif "derive" in binding:
+                # A duration ODP drives BOTH requiredFrequencyValue and
+                # requiredFrequencyUnit from ONE source, so the pair is
+                # structurally incapable of disagreeing. Issue #7: a mismatched
+                # unit silently changes the meaning of the check by a factor of
+                # 24, and validating the two independently cannot catch it.
+                facet = binding["derive"]
+                if not isinstance(r.value, dict) or facet not in r.value:
+                    raise GenerationError(
+                        f"rule {rule_name}.{param}: `derive: {facet}` needs ODP "
+                        f"{key} to be a duration with that facet; got {r.value!r}."
+                    )
+                rendered = str(r.value[facet])
+                cfn_name = _cfn_param_name(rule_name, param)
+                cond_name = cfn_name[0].lower() + cfn_name[1:]
+                parameters[cfn_name] = {"Default": rendered, "Type": "String"}
+                conditions[cond_name] = {"Fn::Not": [{"Fn::Equals": ["", {"Ref": cfn_name}]}]}
+                rule_params[param] = {
+                    "Fn::If": [cond_name, {"Ref": cfn_name}, {"Ref": "AWS::NoValue"}]}
+                for control in rule["controls"].get("nist_800_53_r5", []):
+                    trace.append({
+                        "pack": rules_doc["pack_slug"], "rule": rule_name,
+                        "control": normalize_control_id(control),
+                        "ksi": ";".join(rule["controls"].get("ksi", [])),
+                        "coverage": rule["coverage"], "odp": key,
+                        "oscal_param_id": r.oscal_param_id, "oscal_alt_id": r.oscal_alt_id,
+                        "parameter": param, "value": rendered,
+                        "assigned_by": r.assigned_by,
+                    })
             else:
                 # A list with no `expand` renders as one comma-joined string,
                 # which is how authorizedTcpPorts and friends take it.

@@ -489,3 +489,70 @@ odps:
       schedule and not against this value. Binding it to that rule would make an
       unenforced organizational deadline look like a control that passed. It is
       carried here so the value appears in evidence and is visibly not enforced.
+
+  # ===========================================================================
+  # cp-9 — System Backup
+  # ===========================================================================
+
+  backup_minimum_retention_days:
+    description: >-
+      Minimum retention required of a backup plan's recovery points.
+    control: cp-9
+    oscal_param_id: cp-09_odp.02
+    oscal_alt_id: cp-9_prm_2
+    oscal_label: frequency
+    baselines: [low, moderate, high]
+    type: integer
+    constraint: { min: 1, max: 35 }
+    default: 35
+
+  backup_minimum_frequency:
+    description: >-
+      Minimum frequency at which a backup plan must run.
+    control: cp-9
+    oscal_param_id: cp-09_odp.02
+    oscal_alt_id: cp-9_prm_2
+    oscal_label: frequency
+    baselines: [low, moderate, high]
+    # ONE ODP, TWO RULE PARAMETERS. backup-plan-min-frequency-and-min-retention-check
+    # takes requiredFrequencyValue and requiredFrequencyUnit separately, and a
+    # mismatched pair silently changes the meaning of the check by a factor of 24.
+    # Modelling them as one duration and deriving both facets makes disagreement
+    # structurally impossible rather than something a validator has to catch.
+    type: duration
+    constraint: { units: [hours, days], min: 1, max: 8760 }
+    default: { value: 24, unit: hours }
+
+  recovery_point_retention_days:
+    description: >-
+      Minimum retention required of an individual recovery point.
+    control: cp-9
+    oscal_param_id: cp-09_odp.03
+    oscal_alt_id: cp-9_prm_3
+    oscal_label: frequency
+    baselines: [low, moderate, high]
+    type: integer
+    constraint: { min: 1, max: 100 }
+    default: 35
+
+  # ===========================================================================
+  # cp-10 — System Recovery and Reconstitution — EVIDENCE ONLY
+  # ===========================================================================
+
+  recovery_time_objective_hours:
+    description: >-
+      Maximum tolerable time to restore service after a disruption.
+    control: cp-10
+    oscal_param_id: cp-10_odp.01
+    oscal_alt_id: cp-10_prm_1
+    oscal_label: time period
+    baselines: [low, moderate, high]
+    type: integer
+    constraint: { min: 1, max: 8760 }
+    default: 24
+    evidence_only: >-
+      RTO has no configuration signal anywhere in AWS Config. Backup frequency is
+      a weak proxy for RPO and says nothing at all about time-to-restore. Mapping
+      a frequency rule to this would assert a recovery objective from a setting
+      that cannot evidence it, so the value is carried in evidence and visibly
+      not enforced. Restore-test evidence belongs to the runbook or CI producer.
