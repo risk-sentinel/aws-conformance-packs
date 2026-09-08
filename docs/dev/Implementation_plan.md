@@ -8,19 +8,19 @@ per-organization ODP overlay. It is a *generator and a deployment pattern*, not 
 profile: there are no InSpec controls here. Evidence leaves this repo as Config
 rule evaluations, which `risk-sentinel/aws-config` converts to HDF.
 
-**Last updated:** 2026-09-08 (**Live verification — the preflight was pointed at a real
-Config recorder for the first time and found three defects in under an hour**, none of
-which the test suite could have caught, because all three depended on a real recorder's
-shape. It ignored the boundary and so refused deployments that were entirely correct; a
-resource type in a pack's `required_resource_types` and no rule's went unmapped because
-the lint scanned only rule-level types; and a refusal named the excluded resource type
-rather than the rules it made inert. **The headline result is that the preflight
-refuses on a real production recorder, correctly** — that recorder excludes 58 resource
-types and records no global resources, so the IAM pack would evaluate nothing anywhere
-and nineteen other needed types are not captured. Those packs would have deployed,
-reported `INSUFFICIENT_DATA`, and shown a green board. **Nothing was deployed** — the
-account is production and the refusal is the result. The round trip worked too: a
-boundary derived from what the recorder actually records composed 157 rules to 117.)
+**Last updated:** 2026-09-08 (**SonarCloud onboarded; its first analysis found 18 real
+findings and they are fixed.** The project was never auto-created because the repo was
+**transferred** into the org rather than created in it — `clem-field/aws-conformance-packs`
+still returns a 301 — and SonarCloud's auto-import fires on creation. First analysis:
+4,674 lines, 0 bugs, 0 hotspots, **18 MAJOR vulnerabilities**, all
+`pythonsecurity:S8707`/`S8705` — CLI paths flowing into file reads, and `--profile`
+reaching a subprocess argv. Fixed rather than disputed: `docs/dev/issue_rules.md` makes
+fixing the default, and the exposure is modest only because "the caller is trusted", which
+is the assumption every path traversal rests on. `tools/safe_paths.py` validates every CLI
+path before anything is read. Notably the first version enforced containment inside the
+repo and **broke seven tests** that render a catalog from a temp directory — the same
+"guard that refuses valid work" mistake the preflight had just taught, caught this time
+before it cost a round trip.)
 
 ---
 
@@ -135,6 +135,7 @@ checklist.
 | Deployment `inputs.yml` contract | **Shipped** — `inputs.template.yml` + validator + preflight + both forges |
 | Reference pack available to mine | `sparc-iac` `AWS/ECS/modules/aws_config/` — 107 rules, awslabs NIST r5 pack trimmed for a Fargate boundary |
 | Evidence path | `risk-sentinel/aws-config` reusable workflow already fetches Config evaluations → HDF. Emit grant filed as **sparc-iac#701**; workflows degrade to build artifacts until it lands |
+| SonarCloud | **Onboarded.** 18 vulnerabilities found and fixed; `SonarCloud Code Analysis` can now become the 5th required context |
 | Live verification | **Preflight verified against a real recorder; it refuses, correctly.** Nothing deployed — no `put-conformance-pack` call has been made |
 | Highest-priority next work | **Phase 4 deployment portability** (`inputs.yml`, two-forge pipeline, the OUT-OF-BAND recorder check) and **live verification** — nothing has evaluated a real resource. Then **#8 GOV**, which needs owner decisions. Open: SonarCloud onboarding for the 5th required context |
 

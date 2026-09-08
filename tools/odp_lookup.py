@@ -24,6 +24,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from tools.control_ids import normalize_control_id  # noqa: E402
+from tools import safe_paths  # noqa: E402
 
 INDEX = Path(__file__).resolve().parents[1] / "vendor/nist/nist-800-53r5-params.json"
 
@@ -83,7 +84,8 @@ def main() -> int:
 
     if args.domain:
         import yaml
-        doc = yaml.safe_load(args.domain.read_text()) or {}
+        doc = yaml.safe_load(
+            safe_paths.consumer_file(args.domain, "--domain").read_text()) or {}
         for rule in (doc.get("rules") or {}).values():
             wanted |= {normalize_control_id(c)
                        for c in rule.get("controls", {}).get("nist_800_53_r5", [])}

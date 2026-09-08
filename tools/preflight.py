@@ -28,6 +28,9 @@ from pathlib import Path
 
 import yaml
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from tools import safe_paths  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -170,11 +173,17 @@ def main() -> int:
     args = ap.parse_args()
 
     try:
+        if args.profile:
+            # Reaches an AWS CLI argv. The call passes a list rather than a shell
+            # string, so this is defence in depth -- but an argv element is still
+            # an injection surface for the program being invoked.
+            args.profile = safe_paths.token(args.profile, "--profile")
         if not args.inputs.exists():
             raise PreflightError(
                 f"{args.inputs} does not exist. Copy inputs.template.yml and fill it in; "
                 f"nothing in it has a default, deliberately.")
-        cfg = yaml.safe_load(args.inputs.read_text()) or {}
+        cfg = yaml.safe_load(
+            safe_paths.consumer_file(args.inputs, "--inputs").read_text()) or {}
         packs = cfg.get("packs") or []
         regions = cfg.get("regions") or []
         global_region = cfg.get("global_resource_region") or ""
@@ -226,6 +235,9 @@ def main() -> int:
         print("\npreflight passed: every selected pack's resource types are recorded, "
               "in every target Region.")
         return 0
+    except safe_paths.UnsafePath as exc:
+        print(f"::error::{exc}", file=sys.stderr)
+        return 1
     except PreflightError as exc:
         print(f"::error::{exc}", file=sys.stderr)
         return 1

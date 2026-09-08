@@ -33,6 +33,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).parent))
 from tools.control_ids import is_control_id, normalize_control_id  # noqa: E402
+from tools import safe_paths  # noqa: E402
 from tools import aws_pack, aws_services, boundary as boundary_mod, fedramp  # noqa: E402
 
 # Non-increasable AWS Config service limits.
@@ -801,6 +802,20 @@ def main() -> int:
     args = ap.parse_args()
 
     try:
+        # CLI paths are validated before anything is read. Repo assets must
+        # resolve inside the repository; consumer paths may not, and are reported
+        # at their resolved location so a traversal is visible rather than silent.
+        args.catalog = safe_paths.consumer_file(args.catalog, "--catalog")
+        args.overlay = safe_paths.consumer_file(args.overlay, "--overlay")
+        args.out = safe_paths.out_dir(args.out)
+        if args.set_parameters_from:
+            args.set_parameters_from = safe_paths.consumer_file(
+                args.set_parameters_from, "--set-parameters-from")
+        if args.rules:
+            args.rules = [safe_paths.consumer_file(r, "--rules") for r in args.rules]
+        if args.inputs and Path(args.inputs).exists():
+            args.inputs = safe_paths.consumer_file(args.inputs, "--inputs")
+
         catalog = _load_yaml(args.catalog)
         overlay = _load_yaml(args.overlay)
         oscal = None
@@ -958,6 +973,9 @@ def main() -> int:
             for p in written:
                 print(f"  wrote {p}")
 
+    except safe_paths.UnsafePath as exc:
+        print(f"::error::{exc}", file=sys.stderr)
+        return 1
     except GenerationError as exc:
         print(f"::error::{exc}", file=sys.stderr)
         return 1
