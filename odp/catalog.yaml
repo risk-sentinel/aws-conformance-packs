@@ -350,3 +350,66 @@ odps:
     # allow-list this one fails OPEN when empty -- the managed rule accepts any
     # CMK -- so populate it if the control means specific keys.
     default: []
+
+  # ===========================================================================
+  # au-11 — Audit Record Retention
+  # ===========================================================================
+
+  audit_log_retention_days:
+    description: >-
+      Minimum retention period for CloudWatch log groups holding audit records.
+    control: au-11
+    oscal_param_id: au-11_odp
+    oscal_alt_id: au-11_prm_1
+    oscal_label: time period
+    baselines: [low, moderate, high]
+    type: integer
+    # CloudWatch Logs accepts only a fixed set of retention values; the rule
+    # compares against a minimum, so any value in range is legal to ASK for.
+    constraint: { min: 1, max: 3653 }
+    default: 365
+
+  # ===========================================================================
+  # si-4 — System Monitoring
+  # ---------------------------------------------------------------------------
+  # Three severities, one ODP. guardduty-non-archived-findings exposes
+  # daysLowSev / daysMediumSev / daysHighSev separately, and they are genuinely
+  # different thresholds for the same organizational decision.
+  # ===========================================================================
+
+  finding_age_low_days:
+    description: >-
+      Days a low-severity GuardDuty finding may remain unarchived before it is
+      reported as non-compliant.
+    control: si-4
+    oscal_param_id: si-04_odp.06
+    oscal_alt_id: si-4_prm_6
+    oscal_label: frequency
+    baselines: [low, moderate, high]
+    type: integer
+    constraint: { min: 1, max: 365 }
+    default: 30
+
+  finding_age_medium_days:
+    description: >-
+      Days a medium-severity GuardDuty finding may remain unarchived.
+    control: si-4
+    oscal_param_id: si-04_odp.06
+    oscal_alt_id: si-4_prm_6
+    oscal_label: frequency
+    baselines: [low, moderate, high]
+    type: integer
+    constraint: { min: 1, max: 365 }
+    default: 7
+
+  finding_age_high_days:
+    description: >-
+      Days a high-severity GuardDuty finding may remain unarchived.
+    control: si-4
+    oscal_param_id: si-04_odp.06
+    oscal_alt_id: si-4_prm_6
+    oscal_label: frequency
+    baselines: [low, moderate, high]
+    type: integer
+    constraint: { min: 1, max: 365 }
+    default: 1

@@ -85,7 +85,13 @@ def test_oscal_string_coerced_for_integer_odp():
 # --- resolution refusals ----------------------------------------------------
 
 def test_overlay_value_out_of_range_refused():
-    o = ov(); o["parameters"][0] = {"param_id": "password_minimum_length", "value": 999}
+    # Addressed by param_id, not by index: the overlay is grouped by control, so
+    # position is not stable and an index-based mutation silently targets the
+    # wrong ODP as the catalog grows.
+    o = ov()
+    for entry in o["parameters"]:
+        if entry["param_id"] == "password_minimum_length":
+            entry["value"] = 999
     with pytest.raises(GenerationError, match="above the maximum"):
         generate.resolve(cat(), o, None)
 
@@ -583,3 +589,61 @@ def test_guard_rule_out_of_baseline_is_excluded_not_fatal():
     assert "ElbMinimumTlsPolicy" not in t["Resources"]
     # the KMS guard binds sc-12, which IS in Low, so it must still render
     assert "KmsKeyRotationPeriod" in t["Resources"]
+
+
+# --- LOG: literals, and the recorder that cannot check itself ----------------
+
+LOG = yaml.safe_load((ROOT / "rules/log.yaml").read_text())
+
+
+def log_(): return copy.deepcopy(LOG)
+
+
+def test_literal_parameter_is_not_recorded_as_a_tenant_decision(tmp_path):
+    """alarmActionRequired=true is what the rule MEANS, not something a tenant
+    tailors. Recording it as an ODP value would put a fixed assertion in the
+    provenance column beside real governance decisions."""
+    assert _run_cli(tmp_path, ["--rules", str(ROOT / "rules/log.yaml")]) == 0
+    tags = json.loads((tmp_path / "out/800-53r5-LOG.evidence-tags.json").read_text())
+    r = next(x for x in tags["rules"] if x["rule"] == "cloudwatch-alarm-action-check")
+    assert all(m["assigned_by"] == "rule-literal" for m in r["measured_against"].values())
+    assert all(m["odp"] is None for m in r["measured_against"].values())
+
+
+def test_literal_only_rule_still_appears_in_traceability():
+    """Found by this test: a rule whose parameters are ALL literals HAS
+    parameters, binds no ODP, and so emitted nothing at all -- it vanished from
+    traceability and the pack under-reported its own coverage. The fallback now
+    tests what was emitted, not what was declared."""
+    _, trace, _ = generate.render_pack(cat(), log_(), generate.resolve(cat(), ov(), None), "moderate")
+    for name in ("cloudwatch-alarm-action-check", "redshift-cluster-configuration-check"):
+        rows = [r for r in trace if r["rule"] == name]
+        assert rows, f"{name} contributed no traceability rows"
+        # It crosswalks to controls, but claims no ODP and no provenance.
+        assert all(not r["odp"] and not r["assigned_by"] for r in rows)
+
+
+def test_log_pack_does_not_try_to_check_the_recorder_from_inside_itself():
+    """Circular: if recording is off, the rule that would report that fact does
+    not run. Issue #5 says assert recorder state out of band."""
+    names = set(LOG["rules"])
+    assert not {n for n in names if "configuration-recorder" in n or "recorder" in n}
+    assert "recorder" in LOG["__doc__"] if "__doc__" in LOG else True
+    text = (ROOT / "rules/log.yaml").read_text()
+    assert "RECORDER CANNOT CHECK ITSELF" in text
+
+
+def test_log_coverage_report_carries_the_cost_warning(tmp_path):
+    assert _run_cli(tmp_path, ["--rules", str(ROOT / "rules/log.yaml")]) == 0
+    md = (tmp_path / "out/800-53r5-LOG.coverage.md").read_text()
+    assert "model cost on one account" in md.lower()
+    assert "KSI-MLA-ALA" in md            # log-access authorisation, not modeled
+
+
+def test_every_overlay_covers_every_odp():
+    """A pristine reference a consumer copies must show every knob. Falling
+    through to a catalog default is legal but invisible in the file they edit."""
+    declared = set(CATALOG["odps"])
+    for name in ("vanilla.yaml", "vanilla-low.yaml", "vanilla-high.yaml"):
+        o = yaml.safe_load((ROOT / "overlays" / name).read_text())
+        assert {p["param_id"] for p in o["parameters"]} == declared, name

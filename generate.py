@@ -261,7 +261,8 @@ def render_pack(catalog: dict, rules_doc: dict, resolved: dict[str, Resolved],
         out_of_baseline = [
             (param, b["odp"], odps[b["odp"]]["control"])
             for param, b in (rule.get("parameters") or {}).items()
-            if b.get("odp") in odps and baseline not in (odps[b["odp"]].get("baselines") or [])
+            if "literal" not in b and b.get("odp") in odps
+            and baseline not in (odps[b["odp"]].get("baselines") or [])
         ] + [
             # Guard rules bind ODPs through `tokens`, not `parameters`. Without
             # this they took the fatal path while managed rules took the exclusion
@@ -282,6 +283,19 @@ def render_pack(catalog: dict, rules_doc: dict, resolved: dict[str, Resolved],
             continue
 
         for param, binding in (rule.get("parameters") or {}).items():
+            # A literal is a fixed assertion, not an organizational decision --
+            # alarmActionRequired=true is what the rule MEANS, not something a
+            # tenant tailors. Kept distinct from an ODP so it never appears in
+            # traceability as a value somebody chose.
+            if "literal" in binding:
+                cfn_name = _cfn_param_name(rule_name, param)
+                cond_name = cfn_name[0].lower() + cfn_name[1:]
+                parameters[cfn_name] = {"Default": str(binding["literal"]), "Type": "String"}
+                conditions[cond_name] = {"Fn::Not": [{"Fn::Equals": ["", {"Ref": cfn_name}]}]}
+                rule_params[param] = {
+                    "Fn::If": [cond_name, {"Ref": cfn_name}, {"Ref": "AWS::NoValue"}]}
+                continue
+
             key = binding.get("odp")
             if key not in odps:
                 raise GenerationError(
@@ -429,9 +443,12 @@ def render_pack(catalog: dict, rules_doc: dict, resolved: dict[str, Resolved],
             "Type": "AWS::Config::ConfigRule", "Properties": props,
         }
 
-        # A rule with no ODP still crosswalks; without this it would vanish from
-        # traceability and the pack would under-report its own coverage.
-        if not rule.get("parameters") and not rule.get("tokens"):
+        # A rule that contributed no ODP-bound row still crosswalks. Testing for
+        # "has no parameters" was not enough: a rule whose parameters are ALL
+        # literals has parameters, binds no ODP, and so produced nothing at all --
+        # it vanished from traceability and the pack under-reported its own
+        # coverage. Test what was actually emitted, not what was declared.
+        if not any(t["rule"] == rule_name for t in trace):
             for control in rule["controls"].get("nist_800_53_r5", []):
                 trace.append({
                     "pack": rules_doc["pack_slug"], "rule": rule_name,
@@ -533,9 +550,16 @@ def emit(out_dir: Path, slug: str, template: dict, body: bytes, trace: list[dict
                 "controls": [normalize_control_id(c) for c in r["controls"].get("nist_800_53_r5", [])],
                 "ksi": r["controls"].get("ksi", []),
                 "coverage": r["coverage"],
+                # A literal is recorded with assigned_by "rule-literal" so it is
+                # never mistaken for a threshold a tenant chose. That distinction
+                # is the entire point of the provenance column.
                 "measured_against": {
-                    param: {"odp": b["odp"], "value": resolved[b["odp"]].value,
-                            "assigned_by": resolved[b["odp"]].assigned_by}
+                    param: (
+                        {"odp": b["odp"], "value": resolved[b["odp"]].value,
+                         "assigned_by": resolved[b["odp"]].assigned_by}
+                        if "odp" in b else
+                        {"odp": None, "value": b["literal"], "assigned_by": "rule-literal"}
+                    )
                     for param, b in (r.get("parameters") or {}).items()
                 },
             }
