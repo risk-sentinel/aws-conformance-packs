@@ -11,14 +11,40 @@ serve any tenant — only the overlay changes.
 
 A hard service quota, not a preference:
 
-| Limit | Value | Increasable |
-| --- | --- | --- |
-| Config rules per conformance pack | **130** | No |
-| `ConformancePackInputParameter` items per pack | **60** | No |
-| Config rules per Region per account | 1000 | No |
-| Conformance packs per account / per organization | 50 / 50 | No |
-| Inline template body | 51,200 bytes | — |
-| Template from S3 | 300 KB | — |
+**Verified against AWS documentation on 2026-09-08**, not carried from memory.
+Sources: the AWS Config *Service Limits* page, and the `PutConformancePack` /
+`PutOrganizationConformancePack` API references. All six were correct.
+
+| Limit | Value | Increasable | Source |
+| --- | --- | --- | --- |
+| Config rules per conformance pack | **130** | **No** | Service Limits |
+| Config rules per **organization** conformance pack | **130** | **No** | Service Limits |
+| `ConformancePackInputParameter` items per pack | **60** | **No** | API reference |
+| Config rules per Region per account | **1000** | **No** | Service Limits |
+| Conformance packs per account / per organization | **50 / 50** | **No** | Service Limits |
+| Inline `TemplateBody` | **51,200 bytes** | — | API reference |
+| `TemplateS3Uri` template | **300 KB** | — | API reference |
+
+The Service Limits page says quotas "can be increased upon request" *unless noted
+otherwise* — and every conformance-pack quota is explicitly marked **No**.
+
+**The arithmetic that actually binds.** 50 packs × 130 rules is 6,500 and is
+unreachable: rules in conformance packs count against the 1000-per-Region-per-account
+limit, and AWS says so explicitly. So the real ceiling is about **seven full packs per
+Region per account**, not fifty. Organization deployment counts against the *child*
+accounts' limit too.
+
+**Three operational facts the same reading surfaced**, each now enforced:
+
+- In **organization mode only**, the delivery bucket name must be prefixed
+  `awsconfigconforms`. The single-account API has no such rule, so this fails
+  only when you switch modes.
+- `ExcludedAccounts` is capped at 1000 entries and must match `\d{12}` exactly.
+  A malformed id makes AWS reject the whole call, so the pack deploys to
+  *nobody* rather than to everyone-but-that-account.
+- A staged template **must not be in an archived storage class**. A lifecycle
+  rule tiering the pack bucket to Glacier breaks the deploy with an error that
+  does not mention storage class.
 
 The 130-rule cap means a complete Rev 5 build is several packs no matter how the
 work is organized. The 60-parameter cap is the ceiling on deploy-time ODP

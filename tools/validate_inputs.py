@@ -78,9 +78,33 @@ def validate(cfg: dict, root: Path = ROOT) -> list[str]:
         e.append(f"`global_resource_region` {gr!r} is not a Region identifier.")
 
     d = cfg.get("delivery") or {}
-    if not d.get("evidence_bucket"):
+    ev = d.get("evidence_bucket") or ""
+    if not ev:
         e.append("`delivery.evidence_bucket` is empty. It is where your evidence lands, "
                  "so it has no safe default.")
+    elif mode == "organization" and not ev.startswith("awsconfigconforms"):
+        # Verified against the PutOrganizationConformancePack API reference,
+        # 2026-09-08: "If used, it must be prefixed with `awsconfigconforms`."
+        # The single-account API has no such requirement, so this is exactly the
+        # kind of difference that only shows up at deploy time.
+        e.append(f"`delivery.evidence_bucket` is {ev!r}. In organization mode AWS "
+                 f"requires the delivery bucket name to be prefixed with "
+                 f"`awsconfigconforms`; the single-account API does not, so this "
+                 f"only fails when you switch modes.")
+
+    # ExcludedAccounts: max 1000 items, fixed length 12, pattern \d{12}.
+    excl = cfg.get("excluded_accounts") or []
+    if len(excl) > 1000:
+        e.append(f"`excluded_accounts` has {len(excl)} entries; AWS accepts at most 1000.")
+    for a in excl:
+        if not ACCOUNT_RE.match(str(a)):
+            e.append(f"`excluded_accounts` entry {a!r} is not a 12-digit account id. AWS "
+                     f"rejects the call, so the pack deploys to nobody rather than to "
+                     f"everyone-but-that-account.")
+    if excl and mode != "organization":
+        e.append("`excluded_accounts` is set but `mode` is not `organization`. It is "
+                 "ignored in single-account mode, so the accounts you meant to exclude "
+                 "would be deployed to.")
 
     ov = cfg.get("overlay")
     if not ov:

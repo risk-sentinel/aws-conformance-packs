@@ -73,6 +73,17 @@ PY
       key="packs/$slug.yaml"
       aws s3 cp "$tpl" "s3://$PACK_BUCKET/$key" --region "$region" >/dev/null || {
         echo "::error::staging $slug to s3://$PACK_BUCKET/$key failed"; failures=$((failures+1)); continue; }
+      # AWS: "the template object must not be in an archived storage class if this
+      # parameter is passed." A lifecycle rule tiering the pack bucket to Glacier
+      # breaks the deploy in a way whose error message does not mention storage
+      # class, so it is checked here where the cause is obvious.
+      sc=$(aws s3api head-object --bucket "$PACK_BUCKET" --key "$key" --region "$region" \
+             --query 'StorageClass' --output text 2>/dev/null || echo None)
+      case "$sc" in
+        GLACIER|DEEP_ARCHIVE|GLACIER_IR)
+          echo "::error::s3://$PACK_BUCKET/$key is in storage class $sc. AWS Config cannot read an archived template, and the deploy error will not mention storage class. Check the bucket's lifecycle rules."
+          failures=$((failures+1)); continue ;;
+      esac
       args+=(--template-s3-uri "s3://$PACK_BUCKET/$key")
       echo "  $slug -> $region (staged, $size bytes)"
     else

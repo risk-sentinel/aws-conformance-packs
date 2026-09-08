@@ -8,19 +8,18 @@ per-organization ODP overlay. It is a *generator and a deployment pattern*, not 
 profile: there are no InSpec controls here. Evidence leaves this repo as Config
 rule evaluations, which `risk-sentinel/aws-config` converts to HDF.
 
-**Last updated:** 2026-09-08 (**#20 complete — a boundary's CDEF list now drives pack
-composition.** `boundary.services` or `boundary.cdef_dir` in `inputs.yml` selects the
-rules that have resources to evaluate. A 7-service boundary takes **157 rules to 85**,
-and every one of the 72 removals is recorded in the coverage report with **why** and
-**what it bound** — never modelling a rule and excluding it for a stated cause are very
-different things, and only the second is reviewable. This is `sparc-iac`'s manual
-107-to-69 trim, derived instead of hand-cut. Two refusals matter more than the feature:
-**an unconfigured boundary means NO FILTERING**, because reading "unconfigured" as
-"nothing is in scope" would drop every rule; and a CDEF that declares a service with no
-resolvable `service-id` is a **hard error naming the file**, because matching by title is
-the guesswork that resolved `AWS::RDS::*` to DocDB, and silently skipping it would shrink
-the boundary so the smaller pack looked like a scoping decision. Custom per-component
-CDEFs (sparc-iac's own) carry no props and correctly refuse.)
+**Last updated:** 2026-09-08 (**Service limits verified against AWS documentation, and
+all six were correct.** 130 rules per pack, 60 parameters, 1000 rules per Region per
+account, 50 packs per account and per organization, 51,200-byte inline body, 300 KB from
+S3 — every one non-increasable, confirmed on the Service Limits page and the
+`PutConformancePack` / `PutOrganizationConformancePack` API references. The reading also
+confirmed the arithmetic that actually binds: **50 × 130 is unreachable**, because pack
+rules count against the 1000-per-Region limit, so the real ceiling is about **seven full
+packs per Region per account**. Three operational facts surfaced that we were not
+enforcing, now all three are: in **organization mode only** the delivery bucket must be
+prefixed `awsconfigconforms`; `ExcludedAccounts` must match `\d{12}` or AWS rejects the
+whole call and the pack deploys to **nobody**; and a staged template must not sit in an
+archived storage class, which fails with an error that never mentions storage class.)
 
 ---
 
