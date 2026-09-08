@@ -33,7 +33,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).parent))
 from tools.control_ids import is_control_id, normalize_control_id  # noqa: E402
-from tools import aws_pack, fedramp  # noqa: E402
+from tools import aws_pack, aws_services, fedramp  # noqa: E402
 
 # Non-increasable AWS Config service limits.
 MAX_RULES_PER_PACK = 130
@@ -252,7 +252,9 @@ def _rendered_description(rule: dict) -> str:
 
 
 def render_pack(catalog: dict, rules_doc: dict, resolved: dict[str, Resolved],
-                baseline: str) -> tuple[dict, list[dict], list[dict]]:
+                baseline: str, region: str | None = None,
+                svc: "aws_services.Catalog | None" = None
+                ) -> tuple[dict, list[dict], list[dict]]:
     """Build the CloudFormation template and the traceability rows.
 
     Emits the awslabs shape -- Parameter(Default) + Condition(not-empty) +
@@ -291,6 +293,27 @@ def render_pack(catalog: dict, rules_doc: dict, resolved: dict[str, Resolved],
             for token, key in (rule.get("tokens") or {}).items()
             if key in odps and baseline not in (odps[key].get("baselines") or [])
         ]
+        # A rule whose service does not exist in the target Region can never
+        # evaluate. Today that is invisible: the rule deploys and reports
+        # INSUFFICIENT_DATA forever, which reads as "not failing". Excluded with
+        # its reason recorded, because coverage must never be inferred from
+        # absence -- a smaller pack has to be visibly smaller for a stated cause.
+        if region and svc is not None:
+            unavailable = [
+                (rt, svc.for_resource_type(rt).service_id)
+                for rt in (rule.get("resource_types") or [])
+                if svc.unavailable_in(rt, region)
+            ]
+            if unavailable:
+                excluded.append({
+                    "rule": rule_name,
+                    "reason": f"its service is not available in {region}",
+                    "detail": "; ".join(f"{rt} ({sid})" for rt, sid in unavailable),
+                    "controls": [normalize_control_id(c)
+                                 for c in rule["controls"].get("nist_800_53_r5", [])],
+                })
+                continue
+
         if out_of_baseline:
             excluded.append({
                 "rule": rule_name,
@@ -645,7 +668,12 @@ def emit(out_dir: Path, slug: str, template: dict, body: bytes, trace: list[dict
     p = out_dir / f"{slug}.coverage.md"
     p.write_text(
         f"# {slug} — coverage\n\n"
-        f"Baseline: **{baseline}** · Rules: **{len(rules_doc['rules'])}** · "
+        # The RENDERED count, not the catalog's. Reporting the catalog size while
+        # rules were excluded overstates the pack and hides the exclusions the
+        # section below exists to disclose.
+        f"Baseline: **{baseline}** · Rules in this pack: "
+        f"**{sum(1 for r in template['Resources'].values() if r['Type'] == 'AWS::Config::ConfigRule')}** "
+        f"of {len(rules_doc['rules'])} in the catalog · "
         f"Controls referenced: **{len(controls)}**\n\n"
         "## Read this denominator carefully\n\n"
         "The controls counted below are the ones **this catalog already references**, "
@@ -670,9 +698,11 @@ def emit(out_dir: Path, slug: str, template: dict, body: bytes, trace: list[dict
            + "".join(f"| `{k}` | {' '.join(v.split())} |\n"
                      for k, v in (rules_doc.get("not_modeled") or {}).items()) + "\n"
            if rules_doc.get("not_modeled") else "")
-        + ("\n## Excluded from this baseline\n\nThese rules are NOT in this pack. They are "
-           "absent because the controls they bind are not in the " + baseline + " baseline -- "
-           "not because they were forgotten. Coverage must never be inferred from absence.\n\n"
+        + ("\n## Excluded, with reasons\n\nThese rules are NOT in this pack, and each row "
+           "says why. They are absent for a stated cause -- a control outside the "
+           + baseline + " baseline, or a service that does not exist in the target Region -- "
+           "not because they were forgotten. Coverage must never be inferred from "
+           "absence, so a smaller pack has to be visibly smaller.\n\n"
            "| Rule | Controls | Reason |\n|---|---|---|\n"
            + "".join(f"| `{e['rule']}` | {', '.join(e['controls'])} | {e['detail']} |\n"
                      for e in excluded) + "\n" if excluded else "")
@@ -735,6 +765,9 @@ def main() -> int:
                     help="override the overlay's baseline_level")
     ap.add_argument("--out", type=Path, default=Path("out"))
     ap.add_argument("--emit-oscal", action="store_true")
+    ap.add_argument("--region", default=None,
+                    help="scope to one Region: rules whose service is unavailable there "
+                         "are excluded and the exclusion is recorded")
     args = ap.parse_args()
 
     try:
@@ -757,6 +790,7 @@ def main() -> int:
 
         snap = fedramp.load()
         awsp = aws_pack.load()
+        svc = aws_services.load()
         resolved = resolve(catalog, overlay, oscal)
 
         for rf in rule_files:
@@ -847,7 +881,8 @@ def main() -> int:
                             f"intersect it is asserting coverage FedRAMP does not."
                         )
 
-            template, trace, excluded = render_pack(catalog, rules_doc, resolved, baseline)
+            template, trace, excluded = render_pack(catalog, rules_doc, resolved,
+                                                    baseline, args.region, svc)
             body = yaml.safe_dump(template, sort_keys=False, width=100).encode()
             notes = validate_rendered(template, body, rules_doc)
 
@@ -857,6 +892,23 @@ def main() -> int:
                            catalog.get('odps'))
 
             n_rules = len(rules_doc["rules"])
+            # region_scope was hand-asserted per catalog. AWS publishes it, so
+            # a disagreement is a real defect rather than a style difference.
+            declared = rules_doc.get("region_scope")
+            types = {rt for r in rules_doc["rules"].values()
+                     for rt in (r.get("resource_types") or [])}
+            globals_ = {rt for rt in types
+                        if (g := svc.for_resource_type(rt)) is not None and g.is_global}
+            if declared == "global" and not globals_:
+                raise GenerationError(
+                    f"{rf}: declares `region_scope: global` but none of its resource "
+                    f"types belongs to a service AWS publishes as GLOBAL. Pinning the "
+                    f"pack to one Region would make it evaluate nothing everywhere else.")
+            if declared == "regional" and globals_:
+                print(f"::notice::{rf} declares `region_scope: regional` but "
+                      f"{sorted(globals_)} belong to GLOBAL services, which are recorded "
+                      f"in ONE Region. Those rules report INSUFFICIENT_DATA elsewhere.")
+
             rendered = sum(1 for r in template["Resources"].values()
                            if r["Type"] == "AWS::Config::ConfigRule")
             print(f"{slug} [{baseline}]: {rendered} rules, {len(template['Parameters'])} "

@@ -157,7 +157,7 @@ def test_odp_outside_target_baseline_is_excluded_and_recorded():
 def test_low_baseline_coverage_report_states_the_exclusions(tmp_path):
     assert _run_cli(tmp_path, ["--baseline", "low"]) == 0
     md = (tmp_path / "out/800-53r5-IAM.coverage.md").read_text()
-    assert "Excluded from this baseline" in md
+    assert "Excluded, with reasons" in md
     assert "iam-user-unused-credentials-check" in md
     assert "not because they were forgotten" in md
 
@@ -1105,3 +1105,77 @@ def test_gov_control_ids_use_the_shared_normalizer():
     for c in controls:
         for n in c["tags"].get("nist", []):
             assert normalize_control_id(n) == n.lower()
+
+
+# --- #20: service availability drives Region scoping -------------------------
+
+def test_resource_type_join_is_explicit_not_derived():
+    """`AWS::RDS::DBCluster` resolves to DocDB under a naive string match, because
+    DocumentDB shares the `rds` ARN namespace. A wrong service means a wrong
+    Region scope, and it is silent."""
+    from tools import aws_services
+    c = aws_services.load()
+    assert c.for_resource_type("AWS::RDS::DBCluster").service_id == "RDS"
+    assert c.for_resource_type("AWS::ApiGateway::Stage").service_id == "API Gateway"
+    assert c.for_resource_type("AWS::SageMaker::NotebookInstance").service_id == "SageMaker"
+    # ELB v1 and v2 are distinct services with distinct entries
+    assert c.for_resource_type("AWS::ElasticLoadBalancing::LoadBalancer").service_id \
+        != c.for_resource_type("AWS::ElasticLoadBalancingV2::LoadBalancer").service_id
+
+
+def test_every_used_resource_type_is_mapped():
+    from tools import aws_services
+    c = aws_services.load()
+    used = set()
+    for f in (ROOT / "rules").glob("*.yaml"):
+        for r in yaml.safe_load(f.read_text())["rules"].values():
+            used |= set(r.get("resource_types") or [])
+    for rt in used:
+        c.for_resource_type(rt)          # raises KeyError if unmapped
+
+
+def test_global_services_are_derived_not_asserted():
+    """region_scope was hand-written. AWS publishes the same fact."""
+    from tools import aws_services
+    c = aws_services.load()
+    assert c.for_resource_type("AWS::IAM::User").is_global
+    assert c.for_resource_type("AWS::CloudFront::Distribution").is_global
+    assert not c.for_resource_type("AWS::S3::Bucket").is_global
+
+
+def test_unavailable_service_is_excluded_with_a_reason():
+    """A rule whose service does not exist in the target Region can never
+    evaluate — today it deploys and reports INSUFFICIENT_DATA forever."""
+    from tools import aws_services
+    svc = aws_services.load()
+    vcm = yaml.safe_load((ROOT / "rules/vcm.yaml").read_text())
+    t, _, excluded = generate.render_pack(
+        cat(), vcm, generate.resolve(cat(), ov(), None), "moderate",
+        region="ap-southeast-5", svc=svc)
+    names = {e["rule"] for e in excluded}
+    assert "elastic-beanstalk-managed-updates-enabled" in names
+    assert all("not available in ap-southeast-5" in e["reason"] for e in excluded)
+    assert all(e["detail"] for e in excluded), "an exclusion must name what it cost"
+    assert "ElasticBeanstalkManagedUpdatesEnabled" not in t["Resources"]
+
+
+def test_no_region_filter_means_no_region_exclusions():
+    from tools import aws_services
+    vcm = yaml.safe_load((ROOT / "rules/vcm.yaml").read_text())
+    _, _, excluded = generate.render_pack(
+        cat(), vcm, generate.resolve(cat(), ov(), None), "moderate",
+        region=None, svc=aws_services.load())
+    assert not any("not available" in e["reason"] for e in excluded)
+
+
+def test_a_service_with_no_published_regions_is_treated_as_available():
+    """Absence of data is not evidence of absence. Excluding on it would silently
+    shrink a pack, which is the failure this repository exists to avoid."""
+    from tools import aws_services
+    c = aws_services.load()
+    empty = next((s for s in c.services.values() if not s.regions), None)
+    assert empty is not None
+    fake = aws_services.Catalog(
+        services=c.services, by_resource_type={"X::Y::Z": empty.service_id},
+        account_level=frozenset(), all_regions=c.all_regions)
+    assert not fake.unavailable_in("X::Y::Z", "us-east-1")

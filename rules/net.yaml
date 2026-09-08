@@ -26,8 +26,15 @@ version: 1
 domain: NET
 pack_slug: 800-53r5-NET
 
-# Regional, unlike IAM: these resource types are recorded per Region, so the pack
-# is deployed to every Region carrying workloads.
+# Regional, unlike IAM: most of these resource types are recorded per Region, so
+# the pack is deployed to every Region carrying workloads.
+#
+# ONE EXCEPTION, and the generator says so on every run rather than letting it
+# sit in a comment: AWS publishes CloudFront as a GLOBAL service, so
+# cloudfront-associated-with-waf is recorded in ONE Region and reports
+# INSUFFICIENT_DATA in every other. That rule carries the caveat in its own
+# description too. Splitting it into the IAM pack would pin the whole boundary
+# domain to one Region, which is worse.
 region_scope: regional
 
 # Rendered into the coverage report. The gap this names is the single most

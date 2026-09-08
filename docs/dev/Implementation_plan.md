@@ -8,20 +8,20 @@ per-organization ODP overlay. It is a *generator and a deployment pattern*, not 
 profile: there are no InSpec controls here. Evidence leaves this repo as Config
 rule evaluations, which `risk-sentinel/aws-config` converts to HDF.
 
-**Last updated:** 2026-09-08 (**GOV shipped — the producer for the ~120 controls AWS
-Config cannot see.** #8 emits **zero Config rules by design** and evaluates policy
-artifacts instead. Its governing constraint is the issue's own warning: *"the policy
-file exists" is not evidence*. So existence is emitted, labelled **WEAK**, and **never
-satisfies a control on its own** — the three checks that count are review recency, an
-authorized approver of record, and **SSP-version reconciliation**, which catches the
-drift where the SSP describes a policy nobody is following. Two worked artifacts ship,
-one compliant and one deliberately not, so the failure paths are exercised by something
-real. It runs **on a schedule**, because a review interval expires by the passage of time
-and a commit-triggered pipeline never notices. The `KSI-PIY-GIV` inventory reconciliation
-reports **SKIPPED, never passed**, with no input. Control ids come from the same
-normalizer the pack generator uses — GOV emitting `AC-1` while a pack emits `ac-2`
-fragments the Heimdall rollup, and a fragmented rollup looks like partial coverage rather
-than a defect.)
+**Last updated:** 2026-09-08 (**#20 — Region availability now drives pack composition.**
+awslabs publishes an OSCAL component definition per AWS service, and it carries the two
+facts this repo had been asserting by hand: an availability **scope class** (IAM and
+CloudFront are `GLOBAL`) and the **actual Region list** per service (Bedrock is in 15 of
+34, S3 in 34). Both are vendored as a derived index — 398 services — and
+`generate.py --region` now **excludes a rule whose service does not exist there, with the
+reason recorded**, because today such a rule deploys and reports `INSUFFICIENT_DATA`
+forever. Deploying to `ap-southeast-5` drops 7 rules across 4 packs for a stated cause.
+**The resource-type join is explicit, not derived**: a naive string match resolves
+`AWS::RDS::DBCluster` to **DocDB**, since DocumentDB shares the `rds` ARN namespace, and a
+wrong service means a wrong Region scope. Deriving `region_scope` immediately caught a
+real inconsistency — NET declared `regional` while carrying CloudFront. Also fixed: the
+coverage report counted the CATALOG rather than the rendered pack, overstating a pack
+whose rules were excluded.)
 
 ---
 
