@@ -306,9 +306,6 @@ rules:
   cloudtrail-security-trail-enabled:
     source: managed
     identifier: CLOUDTRAIL_SECURITY_TRAIL_ENABLED
-    not_in_aws_pack: >-
-      Real managed rule, absent from AWS's NIST r5 pack. Identifier UNVERIFIED against a
-      published AWS artifact.
     description: >-
       A CloudTrail trail meeting the security-trail criteria exists.
     resource_types: [AWS::::Account]
@@ -322,8 +319,6 @@ rules:
   cloudwatch-log-group-encrypted:
     source: managed
     identifier: CLOUDWATCH_LOG_GROUP_ENCRYPTED
-    not_in_aws_pack: >-
-      Real managed rule, absent from AWS's NIST r5 pack. Identifier UNVERIFIED.
     description: >-
       CloudWatch log groups are encrypted with a KMS key.
     resource_types: [AWS::Logs::LogGroup]
@@ -334,10 +329,6 @@ rules:
   cw-loggroup-retention-period-check:
     source: managed
     identifier: CW_LOGGROUP_RETENTION_PERIOD_CHECK
-    not_in_aws_pack: >-
-      Real managed rule, absent from AWS's NIST r5 pack. Identifier and the
-      MinRetentionTime parameter are UNVERIFIED -- and this rule carries an ODP, so a
-      wrong parameter name means the retention threshold silently does not apply.
     description: >-
       CloudWatch log groups retain records for at least the organization-defined period.
     resource_types: [AWS::Logs::LogGroup]
@@ -356,9 +347,6 @@ rules:
   guardduty-non-archived-findings:
     source: managed
     identifier: GUARDDUTY_NON_ARCHIVED_FINDINGS
-    not_in_aws_pack: >-
-      Real managed rule, absent from AWS's NIST r5 pack. Identifier and the three
-      severity parameters are UNVERIFIED.
     description: >-
       GuardDuty findings are triaged within the organization-defined window by severity.
     resource_types: [AWS::::Account]

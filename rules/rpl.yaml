@@ -54,10 +54,6 @@ rules:
   backup-plan-min-frequency-and-min-retention-check:
     source: managed
     identifier: BACKUP_PLAN_MIN_FREQUENCY_AND_MIN_RETENTION_CHECK
-    not_in_aws_pack: >-
-      Real managed rule, absent from AWS's NIST r5 pack. Identifier and all THREE
-      parameters are UNVERIFIED -- and requiredFrequencyValue/Unit carry an ODP, so a
-      wrong parameter name means the backup frequency floor silently does not apply.
     description: >-
       Backup plans meet the organization-defined minimum frequency and retention.
     resource_types: [AWS::Backup::BackupPlan]
@@ -77,10 +73,6 @@ rules:
   backup-recovery-point-minimum-retention-check:
     source: managed
     identifier: BACKUP_RECOVERY_POINT_MINIMUM_RETENTION_CHECK
-    not_in_aws_pack: >-
-      Real managed rule, absent from AWS's NIST r5 pack. Identifier and
-      requiredRetentionDays are UNVERIFIED; a wrong parameter name means the retention
-      floor silently does not apply.
     description: >-
       Recovery points meet the organization-defined minimum retention.
     resource_types: [AWS::Backup::RecoveryPoint]
@@ -93,9 +85,6 @@ rules:
   backup-recovery-point-encrypted:
     source: managed
     identifier: BACKUP_RECOVERY_POINT_ENCRYPTED
-    not_in_aws_pack: >-
-      Real managed rule, absent from AWS's NIST r5 pack. Identifier UNVERIFIED against a
-      published AWS artifact.
     description: >-
       Backup recovery points are encrypted.
     resource_types: [AWS::Backup::RecoveryPoint]
@@ -110,9 +99,6 @@ rules:
   backup-recovery-point-manual-deletion-disabled:
     source: managed
     identifier: BACKUP_RECOVERY_POINT_MANUAL_DELETION_DISABLED
-    not_in_aws_pack: >-
-      Real managed rule, absent from AWS's NIST r5 pack. Identifier UNVERIFIED against a
-      published AWS artifact.
     description: >-
       Backup vault policies prevent manual deletion of recovery points.
     resource_types: [AWS::Backup::BackupVault]
@@ -158,9 +144,6 @@ rules:
   rds-in-backup-plan:
     source: managed
     identifier: RDS_IN_BACKUP_PLAN
-    not_in_aws_pack: >-
-      Real managed rule, absent from AWS's NIST r5 pack. Identifier UNVERIFIED against a
-      published AWS artifact.
     description: >-
       RDS instances are in a backup plan.
     resource_types: [AWS::RDS::DBInstance]
@@ -366,9 +349,6 @@ rules:
   autoscaling-multiple-az:
     source: managed
     identifier: AUTOSCALING_MULTIPLE_AZ
-    not_in_aws_pack: >-
-      Real managed rule, absent from AWS's NIST r5 pack. Identifier UNVERIFIED against a
-      published AWS artifact.
     description: >-
       Auto Scaling groups span multiple Availability Zones.
     resource_types: [AWS::AutoScaling::AutoScalingGroup]

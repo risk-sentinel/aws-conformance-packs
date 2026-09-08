@@ -805,10 +805,13 @@ def main() -> int:
                             f"INSUFFICIENT_DATA forever."
                         )
                     if known is not None:
-                        if known.identifier and rule.get("identifier") != known.identifier:
+                        if known.identifier and not known.accepts_identifier(
+                                rule.get("identifier", "")):
+                            alt = (f" (AWS packs also disagree here and publish "
+                                   f"{sorted(known.alternates)})" if known.alternates else "")
                             raise GenerationError(
                                 f"{rf}:{name}: identifier is {rule.get('identifier')!r} "
-                                f"but AWS publishes {known.identifier!r} for this rule."
+                                f"but AWS publishes {known.identifier!r} for this rule{alt}."
                             )
                         declared = {p.replace("{n}", "1")
                                     for p in (rule.get("parameters") or {})}

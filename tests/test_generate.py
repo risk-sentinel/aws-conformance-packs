@@ -446,13 +446,38 @@ def test_every_candidate_rule_named_in_the_issue_is_built():
 
 # --- verification against AWS's own published pack ---------------------------
 
-def test_aws_pack_loads_and_indexes_both_ways():
+def test_aws_index_loads_and_indexes_both_ways():
     from tools import aws_pack
     p = aws_pack.load()
-    assert len(p.rules_by_name) == 130          # exactly the per-pack service cap
+    assert len(p.rules_by_name) > 400           # derived from ALL published packs
     r = p.get("iam-password-policy")
     assert r.identifier == "IAM_PASSWORD_POLICY"
     assert "MinimumPasswordLength" in r.parameters
+    assert r.packs                               # the claim is traceable to a pack
+
+
+def test_index_records_upstream_identifier_disagreements():
+    """AWS's own packs disagree about two rules. A silent first- or last-wins
+    could accept a wrong identifier as verified; the majority wins and the
+    disagreement stays visible."""
+    from tools import aws_pack
+    r = aws_pack.load().get("autoscaling-multiple-az")
+    assert r.identifier == "AUTOSCALING_MULTIPLE_AZ"
+    assert "AUTOSCALING_GROUP_ELB_HEALTHCHECK_REQUIRED" in r.alternates
+    # a rule must not be rejected because one upstream pack has a typo
+    assert r.accepts_identifier("AUTOSCALING_GROUP_ELB_HEALTHCHECK_REQUIRED")
+
+
+def test_multipack_index_verifies_what_the_single_pack_could_not():
+    """22 rules were unverifiable only because the NIST r5 pack does not carry
+    them. Verification is now 155/157."""
+    import glob
+    unverified = set()
+    for f in glob.glob(str(ROOT / "rules/*.yaml")):
+        for n, r in yaml.safe_load(open(f))["rules"].items():
+            if r.get("not_in_aws_pack"):
+                unverified.add(n)
+    assert unverified == {"sqs-queue-encrypted", "approved-amis-by-id"}
 
 
 def test_wrong_identifier_refused(tmp_path):
@@ -504,11 +529,14 @@ def test_unknown_rule_needs_an_explicit_declaration(tmp_path):
 
 def test_declared_exception_is_allowed_and_surfaced(tmp_path):
     """The escape must be a stated reason, and it must reach the report --
-    an unverifiable rule that looks verified is the thing to avoid."""
-    assert _run_cli(tmp_path, ["--rules", str(ROOT / "rules/net.yaml")]) == 0
-    md = (tmp_path / "out/800-53r5-NET.coverage.md").read_text()
+    an unverifiable rule that looks verified is the thing to avoid.
+
+    Only two rules still qualify; the multi-pack index verified the other 22.
+    """
+    assert _run_cli(tmp_path, ["--rules", str(ROOT / "rules/crypto.yaml")]) == 0
+    md = (tmp_path / "out/800-53r5-CRYPTO.coverage.md").read_text()
     assert "Not verifiable against AWS's published pack" in md
-    assert "cloudfront-associated-with-waf" in md
+    assert "sqs-queue-encrypted" in md
 
 
 # --- CRYPTO: Guard policies, which take no InputParameters -------------------
