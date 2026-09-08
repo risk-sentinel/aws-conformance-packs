@@ -1,0 +1,75 @@
+# Clone-and-go pipeline for GitLab.
+#
+# Mirror or import this repository into GitLab and you get a pipeline on the
+# first push, with no configuration at all. Jobs that need credentials activate
+# as you supply them; nothing here fails because you have not set something up.
+#
+# On GitHub this file is inert — GitHub Actions reads only .github/workflows/,
+# so a root .gitlab-ci.yml is just a text file to it. The two forges do not
+# interact, and each carries a full copy rather than sharing, because a public
+# repository cannot call a workflow from a private one.
+#
+# ---- What runs with no configuration ---------------------------------------
+#
+#   Secret Detection     all tiers
+#   SAST                 all tiers
+#   Dependency Scanning  Ultimate only; skipped elsewhere
+#   pack-lint            the generator's own validation — no AWS needed
+#
+# ---- What activates when you configure it ----------------------------------
+#
+#   deploy-packs         needs inputs.yml, AWS_ROLE_ARN, AWS_REGION. Manual.
+#
+# `pipeline-coverage` always runs and states which of these did and did not, so
+# a green pipeline never quietly means "assessed nothing".
+
+include:
+  - template: Jobs/Secret-Detection.gitlab-ci.yml
+  - template: Jobs/SAST.gitlab-ci.yml
+  - template: Jobs/Dependency-Scanning.gitlab-ci.yml
+  - local: /.gitlab-variables.yml
+  - local: /ci/gitlab/deploy.yml
+
+stages:
+  - test
+  - deploy
+  - report
+
+pack-lint:
+  stage: test
+  image: risksentinel/sparc-ci-runner:v0.6.2
+  script:
+    - python3 tools/lint_packs.py
+    - python3 -m pytest tests/ -q
+    # Renders every baseline. Needs no AWS access at all — the generator is the
+    # validator, so a clone can prove the packs are sound before touching cloud.
+    - python3 generate.py --overlay overlays/vanilla-low.yaml --out /tmp/low
+    - python3 generate.py --overlay overlays/vanilla.yaml --out /tmp/moderate
+    - python3 generate.py --overlay overlays/vanilla-high.yaml --out /tmp/high
+
+pipeline-coverage:
+  stage: report
+  image: alpine:3.20
+  needs: []
+  script:
+    - |
+      set -eu
+      echo "=============================================="
+      echo " What this pipeline did and did not assess"
+      echo "=============================================="
+      echo "pack lint + tests + render : ALWAYS RUNS (no credentials needed)"
+      if [ -f inputs.yml ]; then
+        echo "inputs.yml                 : present — validate-inputs ran"
+      else
+        echo "inputs.yml                 : ABSENT — nothing can be deployed."
+        echo "                             Copy inputs.template.yml and fill it in."
+      fi
+      if [ -n "${AWS_ROLE_ARN:-}" ]; then
+        echo "deploy                     : configured, and MANUAL by design"
+      else
+        echo "deploy                     : NOT CONFIGURED (AWS_ROLE_ARN unset)."
+        echo "                             No pack has been deployed by this pipeline."
+      fi
+      echo "=============================================="
+      echo "A green pipeline here does not mean an AWS account was assessed."
+      echo "It means the packs are internally valid and render."

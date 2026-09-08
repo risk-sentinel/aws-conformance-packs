@@ -1,0 +1,67 @@
+# Conformance pack deployment for GitLab.
+#
+# Manual only, and gated on the same validate -> preflight -> render -> deploy
+# sequence as the GitHub workflow. Deliberately NOT DRY with it: a consumer
+# cloning this repository into GitLab gets a working pipeline with no dependency
+# on anything they cannot satisfy. See docs/ci-templates.md for the reasoning.
+
+variables:
+  # Override in Settings -> CI/CD -> Variables to pin your own build.
+  PACK_RUNNER_IMAGE: risksentinel/sparc-ci-runner:v0.6.2
+
+validate-inputs:
+  stage: test
+  image: $PACK_RUNNER_IMAGE
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "web"
+    - exists: [inputs.yml]
+  script:
+    - |
+      if [ ! -f inputs.yml ]; then
+        echo "inputs.yml does not exist. Copy inputs.template.yml and fill it in --"
+        echo "nothing in it has a default, deliberately."
+        exit 1
+      fi
+    - python3 tools/validate_inputs.py --inputs inputs.yml
+
+deploy-packs:
+  stage: deploy
+  image: $PACK_RUNNER_IMAGE
+  needs: [validate-inputs]
+  # Manual, always. A compliance pack landing in an account because someone
+  # pushed a commit is not acceptable.
+  when: manual
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "web"
+      when: manual
+  variables:
+    # Set these as MASKED, PROTECTED CI/CD variables. There is no default:
+    # a defaulted role or Region deploys somewhere that is not yours.
+    AWS_ROLE_ARN: ""
+    AWS_REGION: ""
+  script:
+    - |
+      if [ -z "${AWS_ROLE_ARN:-}" ] || [ -z "${AWS_REGION:-}" ]; then
+        echo "AWS_ROLE_ARN and AWS_REGION must be set as masked CI/CD variables."
+        exit 1
+      fi
+    # GitLab OIDC: the token is minted for THIS project, so the role trust lives
+    # in the consumer's account. This repository holds no credentials.
+    - >
+      export $(aws sts assume-role-with-web-identity
+      --role-arn "$AWS_ROLE_ARN" --role-session-name gitlab-conformance-deploy
+      --web-identity-token "$CI_JOB_JWT_V2" --duration-seconds 3600
+      --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]' --output text
+      | awk '{print "AWS_ACCESS_KEY_ID="$1" AWS_SECRET_ACCESS_KEY="$2" AWS_SESSION_TOKEN="$3}')
+    # Refuses rather than warns. A pack on an unconfigured recorder produces a
+    # green board and no evidence.
+    - python3 tools/preflight.py --inputs inputs.yml
+    - |
+      overlay=$(python3 -c "import yaml;print(yaml.safe_load(open('inputs.yml'))['overlay'])")
+      baseline=$(python3 -c "import yaml;print(yaml.safe_load(open('inputs.yml'))['baseline'])")
+      python3 generate.py --overlay "$overlay" --baseline "$baseline" --emit-oscal
+    - bash scripts/deploy-packs.sh
+  artifacts:
+    when: always
+    paths: [out/]
+    expire_in: 30 days

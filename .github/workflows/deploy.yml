@@ -1,0 +1,104 @@
+name: Deploy conformance packs
+
+# Deploys the packs named in inputs.yml. Manual only — a compliance pack landing
+# in an account because someone merged a README change is not acceptable.
+#
+# THIS REPOSITORY HOLDS NO AWS ROLE AND NO CREDENTIALS. The OIDC token is minted
+# as the CALLER, so a consumer forking this repo assumes THEIR role, and nothing
+# here needs a trust entry. Same model as risk-sentinel/aws-config.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type the word deploy to confirm. Anything else stops the run.'
+        required: true
+        default: ''
+      dry_run:
+        description: 'Validate, preflight and render — then stop without deploying.'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  CI_RUNNER_IMAGE: risksentinel/sparc-ci-runner:v0.6.2
+
+jobs:
+  deploy:
+    name: Validate, preflight, deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Confirm intent
+        env:
+          CONFIRM: ${{ github.event.inputs.confirm }}
+        run: |
+          set -euo pipefail
+          # Via env, never inlined: workflow_dispatch input is attacker-supplied
+          # text and interpolating it into a shell body is an injection.
+          [ "$CONFIRM" = "deploy" ] || {
+            echo "::error::confirm was not the word 'deploy'. Nothing was done."; exit 1; }
+
+      - name: inputs.yml present
+        run: |
+          set -euo pipefail
+          if [ ! -f inputs.yml ]; then
+            echo "::error::inputs.yml does not exist. Copy inputs.template.yml and fill it in — nothing in it has a default, deliberately."
+            exit 1
+          fi
+
+      - name: Validate inputs
+        run: |
+          set -uo pipefail
+          docker run --rm -v "$PWD:/work" -w /work --entrypoint python3 \
+            "${CI_RUNNER_IMAGE}" tools/validate_inputs.py --inputs inputs.yml
+
+      - name: Configure AWS credentials (caller's role, via OIDC)
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4.0.2
+        with:
+          role-to-assume: ${{ secrets.DEPLOY_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Recorder preflight
+        # The check that cannot be a Config rule: a rule about the recorder,
+        # evaluated by the recorder, is circular. It REFUSES rather than warns —
+        # a pack on an unconfigured recorder produces a green board and no
+        # evidence, which is worse than a failed deploy.
+        run: |
+          set -uo pipefail
+          docker run --rm -v "$PWD:/work" -w /work \
+            -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_SESSION_TOKEN \
+            -e AWS_REGION -e AWS_DEFAULT_REGION \
+            --entrypoint python3 "${CI_RUNNER_IMAGE}" tools/preflight.py --inputs inputs.yml
+
+      - name: Render packs
+        run: |
+          set -uo pipefail
+          docker run --rm -v "$PWD:/work" -w /work --entrypoint sh "${CI_RUNNER_IMAGE}" -c '
+            set -e
+            overlay=$(python3 -c "import yaml;print(yaml.safe_load(open(\"inputs.yml\"))[\"overlay\"])")
+            baseline=$(python3 -c "import yaml;print(yaml.safe_load(open(\"inputs.yml\"))[\"baseline\"])")
+            python3 generate.py --overlay "$overlay" --baseline "$baseline" --emit-oscal'
+
+      - name: Deploy
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        run: |
+          set -euo pipefail
+          bash scripts/deploy-packs.sh
+
+      - name: Dry run — stop here
+        if: ${{ github.event.inputs.dry_run == 'true' }}
+        run: |
+          echo "::notice::Dry run. Inputs validated, recorder preflight passed, packs rendered — nothing was deployed."
+
+      - name: Upload rendered packs and evidence artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: conformance-packs
+          path: out/
+          if-no-files-found: warn

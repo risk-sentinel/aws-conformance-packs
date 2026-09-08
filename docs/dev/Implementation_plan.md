@@ -8,19 +8,16 @@ per-organization ODP overlay. It is a *generator and a deployment pattern*, not 
 profile: there are no InSpec controls here. Evidence leaves this repo as Config
 rule evaluations, which `risk-sentinel/aws-config` converts to HDF.
 
-**Last updated:** 2026-09-08 (**Managed-rule verification 84% -> 98%.** #28 replaced
-the single-pack check with an index derived from **all 123** of AWS's published
-conformance packs — 503 rules. 24 of our rules were unverifiable only because the NIST
-r5 pack does not happen to carry them; 22 are now confirmed, identifier and every
-parameter name, leaving `sqs-queue-encrypted` and `approved-amis-by-id`. The build
-surfaced two upstream AWS inconsistencies — `autoscaling-multiple-az` carries the wrong
-identifier in one pack of four — so the index records every identifier seen, uses the
-majority, and accepts any of them rather than rejecting a rule over someone else's typo.
-It also refuses to write a **partial** index: one pack uses CloudFormation short-form
-intrinsics that `safe_load` rejects, and silently skipping it would have narrowed
-verification while looking like a clean run. Verification means the identifier and
-parameter NAMES exist as AWS publishes them — never that a rule evaluates what our
-crosswalk claims. Next: Phase 4.)
+**Last updated:** 2026-09-08 (**Phase 4 — the packs can now be deployed.** #30 adds the
+`inputs.yml` contract in which **nothing identifying a consumer's environment has a
+default**, a validator that refuses eleven ways a deploy could go wrong before anything
+happens, deploy paths for **both forges** holding no role and no credential, and the
+recorder preflight every domain issue asked for. That preflight **cannot be a Config
+rule** — a rule about the recorder, evaluated by the recorder, is circular — so it runs
+out of band and **refuses rather than warns**, because a pack on an unconfigured recorder
+produces a green board and no evidence. README now carries a **generated** per-resource-type
+coverage table so an adopting team can see what their boundary actually gets; CI fails if
+it drifts, since a hand-maintained coverage claim is stale the day after it is written.)
 
 ---
 
@@ -118,7 +115,7 @@ checklist.
 | Branch protection | **Active ruleset** (id 22464078) — 4 required contexts, strict policy, PR + CODEOWNERS review, no deletion, no force-push. Admin bypass retained for the solo-owner case |
 | Secret-scan fixture canary | **Green** — proves the scanner still fires |
 | GitLab pipeline | **Absent** |
-| Deployment `inputs.yml` contract | **Not designed** |
+| Deployment `inputs.yml` contract | **Shipped** — `inputs.template.yml` + validator + preflight + both forges |
 | Reference pack available to mine | `sparc-iac` `AWS/ECS/modules/aws_config/` — 107 rules, awslabs NIST r5 pack trimmed for a Fargate boundary |
 | Evidence path | `risk-sentinel/aws-config` reusable workflow already fetches Config evaluations → HDF. Emit grant filed as **sparc-iac#701**; workflows degrade to build artifacts until it lands |
 | Highest-priority next work | **Phase 4 deployment portability** (`inputs.yml`, two-forge pipeline, the OUT-OF-BAND recorder check) and **live verification** — nothing has evaluated a real resource. Then **#8 GOV**, which needs owner decisions. Open: SonarCloud onboarding for the 5th required context |

@@ -1,0 +1,109 @@
+# Deployment inputs — PRISTINE REFERENCE. Copy it; do not edit it in place.
+#
+#     cp inputs.template.yml inputs.yml
+#     $EDITOR inputs.yml
+#
+# This file is regenerated when the contract changes, so edits here are lost.
+# `inputs.yml` is yours and is never overwritten. Same split as an InSpec
+# profile's inputs, and as overlays/vanilla.yaml in this repository.
+#
+# ---------------------------------------------------------------------------
+# NOTHING THAT IDENTIFIES YOUR ENVIRONMENT HAS A DEFAULT
+# ---------------------------------------------------------------------------
+# Not an oversight and not laziness. A defaulted Region reads an empty account
+# and reports a CLEAN result. A defaulted bucket files your evidence under
+# somebody else's label. Both are worse than a failed pipeline, because both
+# look like success.
+#
+# Every value below that is empty is empty deliberately. The validator refuses
+# the file rather than guessing.
+
+# ---------------------------------------------------------------------------
+# WHICH PACKS
+# ---------------------------------------------------------------------------
+# Any of: IAM NET CRYPTO LOG VCM RPL
+#
+# Cost and the per-Region rule budget both scale with this list. All six is 157
+# rules per Region per account, against a hard ceiling of 1000 that Security
+# Hub's own Config rules also draw from.
+packs: []
+
+# ---------------------------------------------------------------------------
+# WHERE
+# ---------------------------------------------------------------------------
+# Account ids for single-account mode, or organizational unit ids for
+# organization mode. No default: deploying to the wrong account is not
+# recoverable by editing a file afterwards.
+accounts: []
+
+# Every Region you want evaluated. A Region you forget is not reported as a gap
+# — it is simply absent, which reads as nothing to fix.
+regions: []
+
+# The ONE Region where global resources (IAM, and others) are recorded.
+# REQUIRED if the IAM pack is selected: IAM resources are recorded in exactly
+# one Region, so an IAM pack deployed anywhere else evaluates nothing and
+# reports INSUFFICIENT_DATA in every Region — which most dashboards render as
+# "not failing".
+global_resource_region: ""
+
+# ---------------------------------------------------------------------------
+# MODE
+# ---------------------------------------------------------------------------
+# single-account   put-conformance-pack, per account
+# organization     put-organization-conformance-pack, from the management
+#                  account or a delegated administrator
+mode: single-account
+
+# Organization mode only. Accounts to leave out — sandboxes usually.
+excluded_accounts: []
+
+# ---------------------------------------------------------------------------
+# DELIVERY
+# ---------------------------------------------------------------------------
+delivery:
+  # S3 bucket the pack TEMPLATES are staged to. Required when any selected pack
+  # renders over 51,200 bytes, which is the inline template limit; the deploy
+  # decides per pack and tells you which ones needed it.
+  pack_bucket: ""
+
+  # Bucket AWS Config delivers conformance pack RESULTS to. This is where your
+  # evidence lands, so it has no safe default.
+  evidence_bucket: ""
+
+  # Optional prefix inside the evidence bucket.
+  evidence_prefix: ""
+
+# ---------------------------------------------------------------------------
+# TAILORING
+# ---------------------------------------------------------------------------
+# Your ODP overlay. Start from overlays/vanilla.yaml, which carries every knob
+# with recognisable teaching values, and change what your organization has
+# actually decided. Anything left unchanged is recorded in the traceability
+# report as `assigned_by: catalog-default` — visibly a default, never mistaken
+# for a decision.
+overlay: overlays/vanilla.yaml
+
+# low | moderate | high. Must match `baseline_level` in the overlay above, or
+# the deploy refuses: a Moderate overlay rendered against a Low baseline
+# silently drops the rules Low does not ask for.
+baseline: moderate
+
+# ---------------------------------------------------------------------------
+# SAFETY
+# ---------------------------------------------------------------------------
+safety:
+  # The recorder preflight refuses to deploy when the AWS Config recorder is not
+  # capturing what the selected packs need. Setting this to false does not make
+  # the packs work — it makes them deploy and report INSUFFICIENT_DATA, which
+  # reads as "not failing" on every dashboard.
+  #
+  # There is no supported reason to turn this off. It exists so that doing so is
+  # an explicit, reviewable line in a committed file rather than a flag someone
+  # passes once.
+  require_recorder_preflight: true
+
+  # Deleting a conformance pack destroys its evaluation history. Removing a pack
+  # from `packs` above therefore does NOT delete it; the deploy reports the
+  # orphan and leaves it alone. Deletion is a deliberate manual act.
+  delete_removed_packs: false
