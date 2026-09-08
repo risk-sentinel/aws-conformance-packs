@@ -1,0 +1,34 @@
+# Minimum TLS version on load balancer listeners.
+#
+# WHY GUARD: no managed rule exposes a minimum-TLS parameter. The closest managed
+# rules assert only that a listener uses HTTPS/TLS at all.
+#
+# WHAT THIS ACTUALLY CHECKS -- read before trusting it
+# ----------------------------------------------------
+# It compares the listener's SslPolicy NAME against an allow-list. It does NOT
+# observe negotiated ciphers or the TLS version of any actual connection. A
+# policy name is a proxy for a cipher suite, which is why every rule bound to
+# this file carries coverage `partial`.
+#
+# It also sees only listeners on MANAGED load balancers. East-west traffic
+# between compute, and anything terminating TLS inside a container, is invisible
+# to AWS Config entirely. SC-8 must never be claimed on the strength of this
+# alone.
+#
+# {{ApprovedSslPolicies}} is substituted at generation time -- CUSTOM_POLICY
+# rules take no InputParameters.
+
+let listeners = Resources.*[ Type == 'AWS::ElasticLoadBalancingV2::Listener' ]
+
+rule elb_listener_minimum_tls when %listeners !empty {
+  %listeners {
+    when Properties.Protocol IN ["HTTPS", "TLS"] {
+      Properties.SslPolicy IN [{{ApprovedSslPolicies}}]
+      <<
+        The listener's SSL policy is not on the approved list. Approved policies
+        are: {{ApprovedSslPolicies}}. NOTE: this checks the policy NAME, not the
+        ciphers actually negotiated.
+      >>
+    }
+  }
+}

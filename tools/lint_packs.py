@@ -500,16 +500,63 @@ def check_rule_catalogs(root: Path, rep: Report) -> None:
 
 
 def check_guard_policies(root: Path, rep: Report) -> None:
+    """Guard policies must declare every token some rule substitutes.
+
+    Guard does NOT error on a live `{{Token}}`. It evaluates against the literal
+    text, and the rule reports a verdict nobody should trust. The generator
+    already refuses an unsubstituted token at render time; this catches the other
+    direction -- a placeholder in a policy file that NO rule binds, which would
+    survive until someone happens to render that policy.
+    """
     guard_dir = root / "guard"
-    if not guard_dir.is_dir() or not any(guard_dir.glob("*.guard")):
+    policies = sorted(guard_dir.glob("*.guard")) if guard_dir.is_dir() else []
+    if not policies:
         rep.defer("Guard token substitution", "guard/*.guard do not exist yet (Phase 2, CRYPTO)")
         return
-    rep.fail(
-        "guard/*.guard exist but tools/lint_packs.py does not check them for "
-        "unsubstituted {{Token}} placeholders. A Guard policy shipped with a live "
-        "placeholder does not error -- it evaluates against the literal text and the "
-        "rule reports a result nobody should trust."
-    )
+
+    bound: dict[str, set[str]] = {}
+    rules_dir = root / "rules"
+    for rf in sorted(rules_dir.glob("*.yaml")) if rules_dir.is_dir() else []:
+        try:
+            doc = yaml.safe_load(rf.read_text()) or {}
+        except yaml.YAMLError:
+            continue
+        for rule in (doc.get("rules") or {}).values():
+            if rule.get("source") == "guard" and rule.get("policy"):
+                bound.setdefault(rule["policy"], set()).update(
+                    (rule.get("tokens") or {}).keys())
+
+    bad = 0
+    for pol in policies:
+        tokens = set(re.findall(r"\{\{(\w+)\}\}", pol.read_text()))
+        declared = bound.get(pol.name)
+        if declared is None:
+            rep.fail(
+                f"{pol.relative_to(root)}: no rule in rules/*.yaml references this "
+                f"policy. An unreferenced Guard file is either dead or a rule that "
+                f"was never wired up."
+            )
+            bad += 1
+            continue
+        if unbound := tokens - declared:
+            rep.fail(
+                f"{pol.relative_to(root)}: token(s) {sorted(unbound)} appear in the "
+                f"policy but no rule binds them. Guard does not error on a live "
+                f"placeholder -- it evaluates the literal text and reports a verdict "
+                f"nobody should trust."
+            )
+            bad += 1
+        if phantom := declared - tokens:
+            rep.fail(
+                f"{pol.relative_to(root)}: rule(s) declare token(s) {sorted(phantom)} "
+                f"that do not appear in this policy. A binding that substitutes "
+                f"nothing is a threshold that silently does not apply."
+            )
+            bad += 1
+
+    if not bad:
+        n = sum(len(re.findall(r"\{\{(\w+)\}\}", p.read_text())) for p in policies)
+        rep.ok(f"Guard token substitution: {len(policies)} policy file(s), {n} token(s) bound")
 
 
 def check_generated_packs(root: Path, rep: Report) -> None:

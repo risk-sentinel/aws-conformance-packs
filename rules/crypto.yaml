@@ -1,0 +1,421 @@
+# Rule catalog — Cryptography & Data Protection (CRYPTO).
+#
+# ---------------------------------------------------------------------------
+# THE DOMAIN CAVEAT
+# ---------------------------------------------------------------------------
+# Encryption AT REST is well covered here: it is a resource attribute Config can
+# read directly. Encryption IN TRANSIT is not. Config sees listener and endpoint
+# configuration on MANAGED services; east-west traffic between compute, and
+# anything terminating TLS inside a container, is invisible to it entirely.
+#
+# SC-8 must never be claimed on the strength of listener rules alone.
+#
+# ---------------------------------------------------------------------------
+# THE FIRST GUARD-BEARING PACK
+# ---------------------------------------------------------------------------
+# Two thresholds here have no managed-rule parameter anywhere: KMS rotation
+# PERIOD (the managed rule is boolean) and minimum TLS version. Both are
+# CUSTOM_POLICY (Guard) rules, and CUSTOM_POLICY rules do not accept
+# InputParameters -- the values are substituted into policy text at GENERATION
+# time. Changing either ODP means regenerate + redeploy, not a stack parameter
+# update. That is a real operational difference from every other pack.
+
+version: 1
+domain: CRYPTO
+pack_slug: 800-53r5-CRYPTO
+region_scope: regional
+
+domain_caveat: >-
+  Encryption at rest is a resource attribute AWS Config reads directly, and this
+  pack covers it well. Encryption in transit is not: Config sees listener and
+  endpoint configuration on managed services only. Traffic between compute
+  instances, and TLS terminated inside a container, are invisible. Two rules here
+  are Guard policies whose thresholds bake at generation time, so changing the
+  KMS rotation period or the TLS floor requires regenerating and redeploying the
+  pack rather than updating a parameter.
+
+not_modeled:
+  KSI-SVC-VRI: >-
+    Validating Resource Integrity covers si-7. AWS Config reports configuration
+    state, not file or memory integrity, and no managed rule observes integrity
+    verification. Route to a host-based producer rather than claiming si-7 from an
+    encryption setting.
+
+required_resource_types:
+  - AWS::KMS::Key
+  - AWS::S3::Bucket
+  - AWS::EC2::Volume
+  - AWS::RDS::DBInstance
+  - AWS::ACM::Certificate
+  - AWS::ElasticLoadBalancingV2::Listener
+
+rules:
+
+  encrypted-volumes:
+    source: managed
+    identifier: ENCRYPTED_VOLUMES
+    description: >-
+      Attached EBS volumes are encrypted.
+    resource_types: [AWS::EC2::Volume]
+    controls:
+      nist_800_53_r5: [sc-28, sc-28.1]
+      ksi: [KSI-SVC-SIN]
+    coverage: partial
+    coverage_note: >-
+      Evaluates ATTACHED volumes. An unattached volume still holding data is outside its
+      scope and will never show as non-compliant, which is the opposite of what an
+      assessor would assume.
+  ec2-ebs-encryption-by-default:
+    source: managed
+    identifier: EC2_EBS_ENCRYPTION_BY_DEFAULT
+    description: >-
+      EBS encryption-by-default is enabled for the account.
+    resource_types: [AWS::::Account]
+    controls:
+      nist_800_53_r5: [sc-28]
+      ksi: [KSI-SVC-SIN]
+    coverage: supporting
+    coverage_note: >-
+      An account-level setting that affects volumes created AFTER it is turned on. It
+      says nothing about existing volumes, and evaluates once per account per Region.
+  s3-bucket-server-side-encryption-enabled:
+    source: managed
+    identifier: S3_BUCKET_SERVER_SIDE_ENCRYPTION_ENABLED
+    description: >-
+      S3 buckets have server-side encryption configured.
+    resource_types: [AWS::S3::Bucket]
+    controls:
+      nist_800_53_r5: [sc-28]
+      ksi: [KSI-SVC-SIN]
+    coverage: supporting
+    coverage_note: >-
+      NEAR-VACUOUS SINCE 2023. AWS enables SSE-S3 by default on every bucket, so this
+      rule now passes universally and evidences almost nothing. It is retained because
+      its absence would look like a gap, but carrying it as SC-28 evidence is exactly
+      the kind of thing an assessor should catch. If the control means CMK-managed
+      encryption, s3-default-encryption-kms is the rule that matters.
+  s3-default-encryption-kms:
+    source: managed
+    identifier: S3_DEFAULT_ENCRYPTION_KMS
+    description: >-
+      S3 buckets are encrypted with a KMS customer-managed key.
+    resource_types: [AWS::S3::Bucket]
+    controls:
+      nist_800_53_r5: [sc-28, sc-13]
+      ksi: [KSI-SVC-SIN]
+    coverage: full
+    coverage_note: >-
+      This is the rule that carries real SC-28 weight, not the SSE-S3 one. With an empty
+      approved-key list it accepts ANY CMK, so it fails open on key selection --
+      populate approved_kms_key_arns if the control means specific keys.
+    parameters:
+      kmsKeyArns: { odp: approved_kms_key_arns }
+  s3-bucket-ssl-requests-only:
+    source: managed
+    identifier: S3_BUCKET_SSL_REQUESTS_ONLY
+    description: >-
+      S3 bucket policies deny requests made over plain HTTP.
+    resource_types: [AWS::S3::Bucket]
+    controls:
+      nist_800_53_r5: [sc-8, sc-8.1]
+      ksi: [KSI-SVC-SIN, KSI-CNA-ULN]
+    coverage: full
+  rds-storage-encrypted:
+    source: managed
+    identifier: RDS_STORAGE_ENCRYPTED
+    description: >-
+      RDS instance storage is encrypted at rest.
+    resource_types: [AWS::RDS::DBInstance]
+    controls:
+      nist_800_53_r5: [sc-28]
+      ksi: [KSI-SVC-SIN]
+    coverage: full
+  rds-snapshot-encrypted:
+    source: managed
+    identifier: RDS_SNAPSHOT_ENCRYPTED
+    description: >-
+      RDS snapshots are encrypted.
+    resource_types: [AWS::RDS::DBSnapshot]
+    controls:
+      nist_800_53_r5: [sc-28]
+      ksi: [KSI-SVC-SIN]
+    coverage: full
+  efs-encrypted-check:
+    source: managed
+    identifier: EFS_ENCRYPTED_CHECK
+    description: >-
+      EFS file systems are encrypted at rest.
+    resource_types: [AWS::EFS::FileSystem]
+    controls:
+      nist_800_53_r5: [sc-28]
+      ksi: [KSI-SVC-SIN]
+    coverage: full
+  dynamodb-table-encrypted-kms:
+    source: managed
+    identifier: DYNAMODB_TABLE_ENCRYPTED_KMS
+    description: >-
+      DynamoDB tables are encrypted with a KMS key.
+    resource_types: [AWS::DynamoDB::Table]
+    controls:
+      nist_800_53_r5: [sc-28, sc-13]
+      ksi: [KSI-SVC-SIN]
+    coverage: full
+  sns-encrypted-kms:
+    source: managed
+    identifier: SNS_ENCRYPTED_KMS
+    description: >-
+      SNS topics are encrypted with a KMS key.
+    resource_types: [AWS::SNS::Topic]
+    controls:
+      nist_800_53_r5: [sc-28, sc-13]
+      ksi: [KSI-SVC-SIN]
+    coverage: full
+  cmk-backing-key-rotation-enabled:
+    source: managed
+    identifier: CMK_BACKING_KEY_ROTATION_ENABLED
+    description: >-
+      Automatic key rotation is enabled on customer-managed KMS keys.
+    resource_types: [AWS::KMS::Key]
+    controls:
+      nist_800_53_r5: [sc-12]
+      ksi: [KSI-SVC-ASM]
+    coverage: partial
+    coverage_note: >-
+      BOOLEAN ONLY. It sees that rotation is enabled, never how often. Period
+      enforcement has no managed-rule parameter and lives in the kms-key-rotation-period
+      Guard rule, whose value bakes at generation time.
+  kms-cmk-not-scheduled-for-deletion:
+    source: managed
+    identifier: KMS_CMK_NOT_SCHEDULED_FOR_DELETION
+    description: >-
+      Customer-managed KMS keys are not scheduled for deletion.
+    resource_types: [AWS::KMS::Key]
+    controls:
+      nist_800_53_r5: [sc-12]
+      ksi: [KSI-SVC-ASM]
+    coverage: full
+    coverage_note: >-
+      A key pending deletion makes everything it encrypted unrecoverable at the
+      scheduled time, so this is availability of the data as much as key management.
+  acm-certificate-expiration-check:
+    source: managed
+    identifier: ACM_CERTIFICATE_EXPIRATION_CHECK
+    description: >-
+      ACM certificates are not within the expiry warning window.
+    resource_types: [AWS::ACM::Certificate]
+    controls:
+      nist_800_53_r5: [sc-12]
+      ksi: [KSI-SVC-ASM]
+    coverage: full
+    parameters:
+      daysToExpiration: { odp: certificate_expiry_warning_days }
+  elb-tls-https-listeners-only:
+    source: managed
+    identifier: ELB_TLS_HTTPS_LISTENERS_ONLY
+    description: >-
+      Classic load balancer listeners use HTTPS or TLS.
+    resource_types: [AWS::ElasticLoadBalancing::LoadBalancer]
+    controls:
+      nist_800_53_r5: [sc-8, sc-8.1]
+      ksi: [KSI-SVC-SIN, KSI-CNA-ULN]
+    coverage: partial
+    coverage_note: >-
+      Protocol only, never the TLS version or cipher suite. Classic load balancers only.
+  redshift-require-tls-ssl:
+    source: managed
+    identifier: REDSHIFT_REQUIRE_TLS_SSL
+    description: >-
+      Redshift clusters require TLS for client connections.
+    resource_types: [AWS::Redshift::Cluster]
+    controls:
+      nist_800_53_r5: [sc-8, sc-8.1]
+      ksi: [KSI-SVC-SIN]
+    coverage: full
+  elasticsearch-node-to-node-encryption-check:
+    source: managed
+    identifier: ELASTICSEARCH_NODE_TO_NODE_ENCRYPTION_CHECK
+    description: >-
+      Elasticsearch domains encrypt node-to-node traffic.
+    resource_types: [AWS::Elasticsearch::Domain]
+    controls:
+      nist_800_53_r5: [sc-8, sc-8.1]
+      ksi: [KSI-SVC-SIN]
+    coverage: full
+  api-gw-cache-enabled-and-encrypted:
+    source: managed
+    identifier: API_GW_CACHE_ENABLED_AND_ENCRYPTED
+    description: >-
+      API Gateway stage caches are encrypted.
+    resource_types: [AWS::ApiGateway::Stage]
+    controls:
+      nist_800_53_r5: [sc-28]
+      ksi: [KSI-SVC-SIN]
+    coverage: full
+  api-gw-ssl-enabled:
+    source: managed
+    identifier: API_GW_SSL_ENABLED
+    description: >-
+      API Gateway stages have an SSL certificate configured for backend authentication.
+    resource_types: [AWS::ApiGateway::Stage]
+    controls:
+      nist_800_53_r5: [sc-8, sc-8.1]
+      ksi: [KSI-SVC-SIN]
+    coverage: supporting
+    coverage_note: >-
+      Concerns the client certificate API Gateway presents to the BACKEND, not the TLS a
+      caller negotiates with the API. Easy to misread as front-door transport
+      protection.
+  codebuild-project-artifact-encryption:
+    source: managed
+    identifier: CODEBUILD_PROJECT_ARTIFACT_ENCRYPTION
+    description: >-
+      CodeBuild project artifacts are encrypted.
+    resource_types: [AWS::CodeBuild::Project]
+    controls:
+      nist_800_53_r5: [sc-28]
+      ksi: [KSI-SVC-SIN]
+    coverage: full
+  elasticsearch-encrypted-at-rest:
+    source: managed
+    identifier: ELASTICSEARCH_ENCRYPTED_AT_REST
+    description: >-
+      Elasticsearch domains are encrypted at rest.
+    resource_types: [AWS::Elasticsearch::Domain]
+    controls:
+      nist_800_53_r5: [sc-28]
+      ksi: [KSI-SVC-SIN]
+    coverage: full
+  kinesis-stream-encrypted:
+    source: managed
+    identifier: KINESIS_STREAM_ENCRYPTED
+    description: >-
+      Kinesis streams are encrypted at rest.
+    resource_types: [AWS::Kinesis::Stream]
+    controls:
+      nist_800_53_r5: [sc-28]
+      ksi: [KSI-SVC-SIN]
+    coverage: full
+  opensearch-encrypted-at-rest:
+    source: managed
+    identifier: OPENSEARCH_ENCRYPTED_AT_REST
+    description: >-
+      OpenSearch domains are encrypted at rest.
+    resource_types: [AWS::OpenSearch::Domain]
+    controls:
+      nist_800_53_r5: [sc-28]
+      ksi: [KSI-SVC-SIN]
+    coverage: full
+  opensearch-https-required:
+    source: managed
+    identifier: OPENSEARCH_HTTPS_REQUIRED
+    description: >-
+      OpenSearch domains require HTTPS for client connections.
+    resource_types: [AWS::OpenSearch::Domain]
+    controls:
+      nist_800_53_r5: [sc-8, sc-8.1]
+      ksi: [KSI-SVC-SIN]
+    coverage: full
+  opensearch-node-to-node-encryption-check:
+    source: managed
+    identifier: OPENSEARCH_NODE_TO_NODE_ENCRYPTION_CHECK
+    description: >-
+      OpenSearch domains encrypt node-to-node traffic.
+    resource_types: [AWS::OpenSearch::Domain]
+    controls:
+      nist_800_53_r5: [sc-8, sc-8.1]
+      ksi: [KSI-SVC-SIN]
+    coverage: full
+  redshift-cluster-kms-enabled:
+    source: managed
+    identifier: REDSHIFT_CLUSTER_KMS_ENABLED
+    description: >-
+      Redshift clusters are encrypted with a KMS key.
+    resource_types: [AWS::Redshift::Cluster]
+    controls:
+      nist_800_53_r5: [sc-28, sc-13]
+      ksi: [KSI-SVC-SIN]
+    coverage: full
+  sagemaker-endpoint-configuration-kms-key-configured:
+    source: managed
+    identifier: SAGEMAKER_ENDPOINT_CONFIGURATION_KMS_KEY_CONFIGURED
+    description: >-
+      SageMaker endpoint configurations specify a KMS key.
+    resource_types: [AWS::SageMaker::EndpointConfig]
+    controls:
+      nist_800_53_r5: [sc-28, sc-13]
+      ksi: [KSI-SVC-SIN]
+    coverage: full
+  sagemaker-notebook-instance-kms-key-configured:
+    source: managed
+    identifier: SAGEMAKER_NOTEBOOK_INSTANCE_KMS_KEY_CONFIGURED
+    description: >-
+      SageMaker notebook instances specify a KMS key.
+    resource_types: [AWS::SageMaker::NotebookInstance]
+    controls:
+      nist_800_53_r5: [sc-28, sc-13]
+      ksi: [KSI-SVC-SIN]
+    coverage: full
+  secretsmanager-using-cmk:
+    source: managed
+    identifier: SECRETSMANAGER_USING_CMK
+    description: >-
+      Secrets Manager secrets are encrypted with a customer-managed KMS key.
+    resource_types: [AWS::SecretsManager::Secret]
+    controls:
+      nist_800_53_r5: [sc-28, sc-13]
+      ksi: [KSI-SVC-SIN]
+    coverage: full
+    coverage_note: >-
+      Measures WHICH KEY encrypts the secret, not who may read it -- resource-policy
+      access control belongs to the IAM pack.
+  sqs-queue-encrypted:
+    source: managed
+    identifier: SQS_QUEUE_ENCRYPTED
+    not_in_aws_pack: >-
+      Real managed rule, absent from AWS's NIST r5 pack. Identifier UNVERIFIED against a
+      published AWS artifact.
+    description: >-
+      SQS queues are encrypted at rest.
+    resource_types: [AWS::SQS::Queue]
+    controls:
+      nist_800_53_r5: [sc-28, sc-13]
+      ksi: [KSI-SVC-SIN]
+    coverage: full
+  # --- Guard policies: no managed rule exposes these knobs --------------------
+
+  kms-key-rotation-period:
+    source: guard
+    policy: kms-key-rotation-period.guard
+    description: >-
+      Symmetric customer-managed KMS keys rotate within the organization-defined
+      period.
+    resource_types: [AWS::KMS::Key]
+    controls:
+      nist_800_53_r5: [sc-12]
+      ksi: [KSI-SVC-ASM]
+    coverage: partial
+    coverage_note: >-
+      Scoped to symmetric customer-managed keys with AWS-generated material. AWS-managed
+      keys, asymmetric keys and imported material CANNOT rotate automatically, and
+      including them would produce permanent unfixable non-compliance -- noise that trains
+      people to ignore the pack. Those keys are therefore not evaluated at all rather than
+      reported as passing.
+    tokens:
+      RotationPeriodInDays: key_rotation_period_days
+
+  elb-minimum-tls-policy:
+    source: guard
+    policy: elb-minimum-tls-policy.guard
+    description: >-
+      Load balancer HTTPS and TLS listeners use an approved SSL security policy.
+    resource_types: [AWS::ElasticLoadBalancingV2::Listener]
+    controls:
+      nist_800_53_r5: [sc-8.1, sc-8]
+      ksi: [KSI-SVC-SIN]
+    coverage: partial
+    coverage_note: >-
+      Compares the listener's SSL policy NAME against an allow-list. It does not observe
+      negotiated ciphers or the TLS version of any actual connection -- a policy name is a
+      proxy for a cipher suite. Managed load balancer listeners only.
+    tokens:
+      ApprovedSslPolicies: approved_ssl_policies

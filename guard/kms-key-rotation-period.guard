@@ -1,0 +1,45 @@
+# KMS customer-managed key rotation period.
+#
+# WHY THIS IS A GUARD POLICY AND NOT A MANAGED RULE PARAMETER
+# ----------------------------------------------------------
+# cmk-backing-key-rotation-enabled is BOOLEAN. It sees that rotation is on, never
+# how often. Enforcing a rotation PERIOD has no managed-rule parameter anywhere,
+# so it has to be a CUSTOM_POLICY rule.
+#
+# The consequence is not cosmetic: CUSTOM_POLICY rules do not accept
+# InputParameters, so the period token is substituted at GENERATION time.
+# Changing this ODP means regenerate + redeploy, not a stack parameter update.
+#
+# SCOPING -- THE PART THAT MATTERS
+# --------------------------------
+# Three kinds of key cannot rotate automatically at all:
+#   - AWS-managed keys        (KeyManager == "AWS")
+#   - asymmetric keys         (KeySpec != SYMMETRIC_DEFAULT)
+#   - imported key material   (Origin == "EXTERNAL")
+#
+# A filter that omits these produces permanent, unfixable non-compliance on keys
+# that are behaving correctly. That noise is worse than no rule: it trains people
+# to ignore the pack. The `when` block below is the whole point of this file.
+
+let kms_keys = Resources.*[ Type == 'AWS::KMS::Key' ]
+
+rule kms_cmk_rotation_period when %kms_keys !empty {
+  %kms_keys {
+    when KeyManager == "CUSTOMER"
+         KeySpec == "SYMMETRIC_DEFAULT"
+         Origin == "AWS_KMS" {
+      Properties {
+        EnableKeyRotation == true
+        <<
+          Automatic key rotation is not enabled on a symmetric customer-managed
+          key. Rotation is required at least every {{RotationPeriodInDays}} days.
+        >>
+        RotationPeriodInDays <= {{RotationPeriodInDays}}
+        <<
+          The key rotation period exceeds the organization-defined maximum of
+          {{RotationPeriodInDays}} days.
+        >>
+      }
+    }
+  }
+}

@@ -8,19 +8,18 @@ per-organization ODP overlay. It is a *generator and a deployment pattern*, not 
 profile: there are no InSpec controls here. Evidence leaves this repo as Config
 rule evaluations, which `risk-sentinel/aws-config` converts to HDF.
 
-**Last updated:** 2026-09-08 (**IAM and NET complete; 59 rules, 88% verified against
-AWS's own pack.** Reconciled our domain issues against AWS's published NIST r5 pack:
-it carries 130 rules and **58 appeared in none of our six issues**, because the issues
-were written from research rather than by diffing AWS's mapping. All 58 are now
-assigned to a domain in `docs/dev/rule-reconciliation.yaml` — none dropped for being
-irrelevant to a boundary, since that judgement belongs to the boundary (#20), not the
-catalog. Candidates went 97 -> 157, every domain still well under the 130 cap. IAM is
-25 rules and NET 34. The candidate-coverage test now applies to **every** domain, so a
-shortfall fails the build instead of being absorbed into a status table. Two guard
-classes earned themselves again: the KSI crosswalk check caught five rules assigning
-`KSI-IAM-AAM` to bare `ac-2` when AAM claims only the ac-2 *enhancements*, and a new
-OSCAL-parameter-existence check caught an invented `ac-06_odp` — `ac-6` publishes no
-parameters at all. Next: CRYPTO, LOG, VCM, RPL.)
+**Last updated:** 2026-09-08 (**CRYPTO complete — the first Guard-bearing pack.** Three
+domains done: IAM 25, NET 34, CRYPTO 31 = 90 rules, and the lint now reports **zero
+pending checks** for the first time. Two CRYPTO thresholds have no managed-rule
+parameter anywhere — KMS rotation *period* (the managed rule is boolean) and the TLS
+floor — so both are `CUSTOM_POLICY` Guard rules whose values are substituted into
+policy text at generation time. That is a real operational difference: changing either
+ODP means regenerate + redeploy, not a stack parameter update. The KMS policy is scoped
+to symmetric customer-managed keys with AWS-generated material, because AWS-managed,
+asymmetric and imported keys cannot rotate at all and including them would produce
+permanent unfixable non-compliance — noise that trains people to ignore the pack.
+Rendered size is 21,650 bytes, comfortably inside the 51,200-byte inline limit, so the
+S3-staging threshold is not yet reached. Next: LOG, VCM, RPL.)
 
 ---
 
@@ -112,7 +111,7 @@ checklist.
 | Generator (`generate.py`) | **Built** (#13) — resolves, renders, validates, emits 5 artifacts. 22 tests |
 | ODP catalog (`odp/catalog.yaml`) | **12 ODPs** — every `oscal_param_id` now checked for existence against the vendored NIST index |
 | Rule catalogs (`rules/<domain>.yaml`) | **2 / 6** — `iam.yaml` (7 rules, partial; #2 open) and `net.yaml` (18 rules, #3). 25 rules total |
-| Guard policies (`guard/`) | **Not started** — first needed by CRYPTO (#4) |
+| Guard policies (`guard/`) | **2** — KMS rotation period and the ELB TLS floor. Values bake at generation time |
 | Overlays (`overlays/`) | **3** — `vanilla.yaml` (moderate), `vanilla-low.yaml`, `vanilla-high.yaml`. All three generate; Low records 2 exclusions |
 | Repo CI | **5 workflows.** secret-scan (+ fixture canary), pack-lint, CodeQL (python), 2 HDF emitters |
 | Branch protection | **Active ruleset** (id 22464078) — 4 required contexts, strict policy, PR + CODEOWNERS review, no deletion, no force-push. Admin bypass retained for the solo-owner case |
@@ -449,7 +448,7 @@ table.
 |---|---|---|---|---|
 | [#2](https://github.com/risk-sentinel/aws-conformance-packs/issues/2) | **IAM** | 25–35 | 7 | Highest ODP density in the program — it exercises the catalog hardest and shakes out the schema first. Region-pinning for global resources is a pattern every later pack inherits |
 | [#3](https://github.com/risk-sentinel/aws-conformance-packs/issues/3) | **NET** | **18 built** | 4 | **DONE.** Port-list capacity proved the `list` type and the slot cap. Domain caveat: Config evaluates boundary components as objects, not reachability |
-| [#4](https://github.com/risk-sentinel/aws-conformance-packs/issues/4) | **CRYPTO** | 25–35 | 4 | **First Guard-heavy pack.** KMS rotation period and min-TLS have no managed-rule parameter, so this is where `CUSTOM_POLICY` token substitution and the S3-hosted-template threshold get proven |
+| [#4](https://github.com/risk-sentinel/aws-conformance-packs/issues/4) | **CRYPTO** | **31 built** | 4 | **DONE.** First Guard-heavy pack. KMS rotation period and min-TLS have no managed-rule parameter, so this is where `CUSTOM_POLICY` token substitution and the S3-hosted-template threshold get proven |
 | [#5](https://github.com/risk-sentinel/aws-conformance-packs/issues/5) | **LOG** | 30–40 | 3 | Largest rule count and where Config cost explodes — model the bill before org rollout |
 | [#6](https://github.com/risk-sentinel/aws-conformance-packs/issues/6) | **VCM** | 25–35 | 3 | First `evidence_only_odps` user |
 | [#7](https://github.com/risk-sentinel/aws-conformance-packs/issues/7) | **RPL** | 12–18 | 3 | Smallest; the `*-in-backup-plan` coverage trap is the lesson |
