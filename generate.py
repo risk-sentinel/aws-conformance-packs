@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -261,6 +262,14 @@ def render_pack(catalog: dict, rules_doc: dict, resolved: dict[str, Resolved],
             (param, b["odp"], odps[b["odp"]]["control"])
             for param, b in (rule.get("parameters") or {}).items()
             if b.get("odp") in odps and baseline not in (odps[b["odp"]].get("baselines") or [])
+        ] + [
+            # Guard rules bind ODPs through `tokens`, not `parameters`. Without
+            # this they took the fatal path while managed rules took the exclusion
+            # path -- and a Low pack containing any Guard rule became
+            # ungeneratable again, which is the bug this whole branch fixed once.
+            (f"guard:{token}", key, odps[key]["control"])
+            for token, key in (rule.get("tokens") or {}).items()
+            if key in odps and baseline not in (odps[key].get("baselines") or [])
         ]
         if out_of_baseline:
             excluded.append({
@@ -340,13 +349,80 @@ def render_pack(catalog: dict, rules_doc: dict, resolved: dict[str, Resolved],
                               if isinstance(r.value, list) else r.value),
                 })
 
-        props = {
-            "ConfigRuleName": rule_name,
-            "Description": _rendered_description(rule),
-            "Source": {"Owner": "AWS", "SourceIdentifier": rule["identifier"]},
-        }
-        if rule_params:
-            props["InputParameters"] = rule_params
+        if rule.get("source") == "guard":
+            # CUSTOM_POLICY rules do NOT accept InputParameters. Every ODP value a
+            # Guard policy needs is substituted into the policy TEXT here, at
+            # generation time -- which is why a Guard-bound ODP always means
+            # regenerate + redeploy rather than a stack parameter update.
+            policy_path = Path("guard") / rule["policy"]
+            if not policy_path.exists():
+                raise GenerationError(
+                    f"rule {rule_name}: policy {policy_path} does not exist")
+            text = policy_path.read_text()
+
+            for token, key in (rule.get("tokens") or {}).items():
+                if key not in odps:
+                    raise GenerationError(
+                        f"rule {rule_name}: token {{{{{token}}}}} binds ODP {key!r}, "
+                        f"which odp/catalog.yaml does not declare."
+                    )
+                r = resolved[key]
+                val = (", ".join(f'"{v}"' for v in r.value)
+                       if isinstance(r.value, list) else str(r.value))
+                if f"{{{{{token}}}}}" not in text:
+                    raise GenerationError(
+                        f"rule {rule_name}: declares token {{{{{token}}}}} but "
+                        f"{policy_path} contains no such placeholder. A declared "
+                        f"binding that substitutes nothing is a threshold that "
+                        f"silently does not apply."
+                    )
+                text = text.replace(f"{{{{{token}}}}}", val)
+
+                for control in rule["controls"].get("nist_800_53_r5", []):
+                    trace.append({
+                        "pack": rules_doc["pack_slug"], "rule": rule_name,
+                        "control": normalize_control_id(control),
+                        "ksi": ";".join(rule["controls"].get("ksi", [])),
+                        "coverage": rule["coverage"], "odp": key,
+                        "oscal_param_id": r.oscal_param_id,
+                        "oscal_alt_id": r.oscal_alt_id,
+                        "parameter": f"guard:{token}", "assigned_by": r.assigned_by,
+                        "value": (",".join(str(v) for v in r.value)
+                                  if isinstance(r.value, list) else r.value),
+                    })
+
+            if left := re.findall(r"\{\{(\w+)\}\}", text):
+                raise GenerationError(
+                    f"rule {rule_name}: {policy_path} still contains unsubstituted "
+                    f"token(s) {sorted(set(left))}. Guard does NOT error on a live "
+                    f"placeholder -- it evaluates against the literal text and the "
+                    f"rule reports a result nobody should trust."
+                )
+
+            props = {
+                "ConfigRuleName": rule_name,
+                "Description": _rendered_description(rule),
+                "Source": {
+                    "Owner": "CUSTOM_POLICY",
+                    "SourceDetails": [{
+                        "EventSource": "aws.config",
+                        "MessageType": "ConfigurationItemChangeNotification",
+                    }],
+                    "CustomPolicyDetails": {
+                        "PolicyRuntime": rule.get("policy_runtime", "guard-2.x.x"),
+                        "PolicyText": text,
+                        "EnableDebugLogDelivery": False,
+                    },
+                },
+            }
+        else:
+            props = {
+                "ConfigRuleName": rule_name,
+                "Description": _rendered_description(rule),
+                "Source": {"Owner": "AWS", "SourceIdentifier": rule["identifier"]},
+            }
+            if rule_params:
+                props["InputParameters"] = rule_params
         if scope := rule.get("resource_types"):
             props["Scope"] = {"ComplianceResourceTypes": scope}
         resources[_rule_logical_id(rule_name)] = {
@@ -355,7 +431,7 @@ def render_pack(catalog: dict, rules_doc: dict, resolved: dict[str, Resolved],
 
         # A rule with no ODP still crosswalks; without this it would vanish from
         # traceability and the pack would under-report its own coverage.
-        if not rule.get("parameters"):
+        if not rule.get("parameters") and not rule.get("tokens"):
             for control in rule["controls"].get("nist_800_53_r5", []):
                 trace.append({
                     "pack": rules_doc["pack_slug"], "rule": rule_name,

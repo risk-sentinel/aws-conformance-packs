@@ -272,3 +272,81 @@ odps:
     # kms:Decrypt and kms:ReEncryptFrom are the two that let a principal read
     # ciphertext outright, which is why they are the default deny.
     default: ["kms:Decrypt", "kms:ReEncryptFrom"]
+
+  # ===========================================================================
+  # sc-12 — Cryptographic Key Establishment and Management
+  # ===========================================================================
+
+  key_rotation_period_days:
+    description: >-
+      Maximum interval between automatic rotations of a symmetric customer-managed
+      KMS key.
+    control: sc-12
+    oscal_param_id: sc-12_odp
+    oscal_alt_id: sc-12_prm_1
+    oscal_label: requirements
+    baselines: [low, moderate, high]
+    type: integer
+    # AWS accepts 90-2560 days for RotationPeriodInDays.
+    constraint: { min: 90, max: 2560 }
+    default: 365
+    # GUARD-BOUND. cmk-backing-key-rotation-enabled is boolean and sees only THAT
+    # rotation is on, never how often. There is no managed-rule parameter for the
+    # period anywhere, so this is substituted into policy text at generation time
+    # and a change means regenerate + redeploy, not a stack parameter update.
+
+  certificate_expiry_warning_days:
+    description: >-
+      How far ahead of expiry an ACM certificate is reported as non-compliant.
+    control: sc-12
+    oscal_param_id: sc-12_odp
+    oscal_alt_id: sc-12_prm_1
+    oscal_label: requirements
+    baselines: [low, moderate, high]
+    type: integer
+    constraint: { min: 1, max: 365 }
+    default: 90
+
+  # ===========================================================================
+  # sc-8.1 — Transmission Confidentiality and Integrity | Cryptographic Protection
+  # ===========================================================================
+
+  approved_ssl_policies:
+    description: >-
+      ELB security policy names permitted on HTTPS and TLS listeners, as the
+      minimum-TLS floor.
+    control: sc-8.1
+    oscal_param_id: sc-08.01_odp
+    oscal_alt_id: sc-8.1_prm_1
+    oscal_label: one-or-more
+    baselines: [moderate, high]
+    type: list
+    item_type: string
+    constraint: { max_items: 12 }
+    # TLS 1.2 floor. NOTE this is a POLICY NAME allow-list, which is a proxy for a
+    # cipher suite -- nothing here observes a negotiated connection.
+    default:
+      - ELBSecurityPolicy-TLS13-1-2-2021-06
+      - ELBSecurityPolicy-TLS-1-2-Ext-2018-06
+
+  # ===========================================================================
+  # sc-13 — Cryptographic Protection
+  # ===========================================================================
+
+  approved_kms_key_arns:
+    description: >-
+      KMS key ARNs approved for default S3 bucket encryption. Empty means any CMK
+      is accepted.
+    control: sc-13
+    oscal_param_id: sc-13_odp.02
+    oscal_alt_id: sc-13_prm_2
+    oscal_label: types of cryptography for each specified cryptographic use
+    baselines: [low, moderate, high]
+    type: list
+    item_type: string
+    constraint: { max_items: 30 }
+    # Deliberately EMPTY. A key ARN is environment-specific and any value shipped
+    # in a portable catalog would be somebody else's account. Unlike the IGW
+    # allow-list this one fails OPEN when empty -- the managed rule accepts any
+    # CMK -- so populate it if the control means specific keys.
+    default: []

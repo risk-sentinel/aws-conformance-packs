@@ -498,3 +498,88 @@ def test_declared_exception_is_allowed_and_surfaced(tmp_path):
     md = (tmp_path / "out/800-53r5-NET.coverage.md").read_text()
     assert "Not verifiable against AWS's published pack" in md
     assert "cloudfront-associated-with-waf" in md
+
+
+# --- CRYPTO: Guard policies, which take no InputParameters -------------------
+
+CRYPTO = yaml.safe_load((ROOT / "rules/crypto.yaml").read_text())
+
+
+def crypto(): return copy.deepcopy(CRYPTO)
+
+
+def test_guard_rule_renders_as_custom_policy_with_substituted_text():
+    """CUSTOM_POLICY rules do NOT accept InputParameters, so the ODP value has to
+    be baked into the policy text at generation time."""
+    t, _, _ = generate.render_pack(cat(), crypto(), generate.resolve(cat(), ov(), None), "moderate")
+    src = t["Resources"]["KmsKeyRotationPeriod"]["Properties"]["Source"]
+    assert src["Owner"] == "CUSTOM_POLICY"
+    assert "InputParameters" not in t["Resources"]["KmsKeyRotationPeriod"]["Properties"]
+    text = src["CustomPolicyDetails"]["PolicyText"]
+    assert "365" in text and "{{" not in text
+
+
+def test_guard_rule_contributes_traceability_with_provenance():
+    _, trace, _ = generate.render_pack(cat(), crypto(), generate.resolve(cat(), ov(), None), "moderate")
+    rows = [r for r in trace if r["rule"] == "kms-key-rotation-period"]
+    assert rows and all(r["parameter"].startswith("guard:") for r in rows)
+    assert all(r["assigned_by"] for r in rows)
+
+
+def test_unsubstituted_guard_token_refused(tmp_path):
+    """The one that matters most. Guard does NOT error on a live placeholder --
+    it evaluates the literal text and reports a verdict nobody should trust."""
+    import shutil, subprocess
+    shutil.copytree(ROOT / "guard", tmp_path / "guard")
+    p = tmp_path / "guard/kms-key-rotation-period.guard"
+    p.write_text(p.read_text() + "\n# stray {{UnboundThreshold}}\n")
+    c = crypto()
+    c["rules"]["kms-key-rotation-period"]["policy"] = "kms-key-rotation-period.guard"
+    (tmp_path / "rules").mkdir()
+    (tmp_path / "rules/crypto.yaml").write_text(yaml.safe_dump(c))
+    proc = subprocess.run(
+        [sys.executable, str(ROOT / "generate.py"), "--overlay", str(ROOT / "overlays/vanilla.yaml"),
+         "--catalog", str(ROOT / "odp/catalog.yaml"),
+         "--rules", str(tmp_path / "rules/crypto.yaml"), "--out", str(tmp_path / "out")],
+        capture_output=True, text=True, cwd=tmp_path)
+    assert proc.returncode == 1
+    assert "unsubstituted token" in proc.stderr
+
+
+def test_declared_token_missing_from_policy_refused():
+    c = crypto()
+    c["rules"]["kms-key-rotation-period"]["tokens"]["Ghost"] = "key_rotation_period_days"
+    with pytest.raises(GenerationError, match="no such placeholder"):
+        generate.render_pack(cat(), c, generate.resolve(cat(), ov(), None), "moderate")
+
+
+def test_kms_guard_scopes_to_rotatable_keys_only():
+    """Issue #4: AWS-managed, asymmetric and imported keys CANNOT rotate. Including
+    them produces permanent unfixable non-compliance -- noise that trains people to
+    ignore the pack."""
+    text = (ROOT / "guard/kms-key-rotation-period.guard").read_text()
+    assert 'KeyManager == "CUSTOMER"' in text
+    assert 'KeySpec == "SYMMETRIC_DEFAULT"' in text
+    assert 'Origin == "AWS_KMS"' in text
+
+
+def test_sse_s3_vacuity_is_documented_in_the_rendered_description():
+    """Issue #4: carrying s3-bucket-server-side-encryption-enabled as SC-28
+    evidence is the kind of thing an assessor should catch."""
+    t, _, _ = generate.render_pack(cat(), crypto(), generate.resolve(cat(), ov(), None), "moderate")
+    d = t["Resources"]["S3BucketServerSideEncryptionEnabled"]["Properties"]["Description"]
+    assert "VACUOUS" in d.upper()
+    assert "[coverage: supporting]" in d
+
+
+def test_guard_rule_out_of_baseline_is_excluded_not_fatal():
+    """sc-8.1 is Moderate+. A Guard rule binding it took the FATAL path while
+    managed rules took the exclusion path, which made a Low pack containing any
+    Guard rule ungeneratable -- the same bug the exclusion branch fixed once."""
+    t, _, excluded = generate.render_pack(
+        cat(), crypto(), generate.resolve(cat(), ov(), None), "low")
+    names = {e["rule"] for e in excluded}
+    assert "elb-minimum-tls-policy" in names
+    assert "ElbMinimumTlsPolicy" not in t["Resources"]
+    # the KMS guard binds sc-12, which IS in Low, so it must still render
+    assert "KmsKeyRotationPeriod" in t["Resources"]
