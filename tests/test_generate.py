@@ -124,16 +124,35 @@ def test_rule_binding_undeclared_odp_refused():
         generate.render_pack(cat(), r, generate.resolve(cat(), ov(), None), "moderate")
 
 
-def test_odp_outside_target_baseline_refused():
-    """ac-2.3 is absent from Low; a rule binding it must not render into a Low pack."""
-    with pytest.raises(GenerationError, match="not in the low baseline"):
-        generate.render_pack(cat(), rl(), generate.resolve(cat(), ov(), None), "low")
+def test_odp_outside_target_baseline_is_excluded_and_recorded():
+    """ac-2.3 is absent from Low, so its rules must not render into a Low pack.
+
+    Skipped rather than fatal: failing would make a Low pack ungeneratable from
+    any catalog holding a Moderate-only rule, which is not a safety property. But
+    the exclusion is RECORDED -- coverage must never be inferred from absence.
+    """
+    t, _, excluded = generate.render_pack(cat(), rl(), generate.resolve(cat(), ov(), None), "low")
+    names = {e["rule"] for e in excluded}
+    assert names == {"iam-user-unused-credentials-check", "secretsmanager-secret-unused"}
+    assert all("low baseline" in e["reason"] for e in excluded)
+    assert not any(n in t["Resources"] for n in ("IamUserUnusedCredentialsCheck",
+                                                 "SecretsmanagerSecretUnused"))
+    # ...and the rules the Low baseline DOES ask for are still there.
+    assert "IamPasswordPolicy" in t["Resources"]
+
+
+def test_low_baseline_coverage_report_states_the_exclusions(tmp_path):
+    assert _run_cli(tmp_path, ["--baseline", "low"]) == 0
+    md = (tmp_path / "out/800-53r5-IAM.coverage.md").read_text()
+    assert "Excluded from this baseline" in md
+    assert "iam-user-unused-credentials-check" in md
+    assert "not because they were forgotten" in md
 
 
 # --- cap and placeholder refusals -------------------------------------------
 
 def _rendered(rules_doc, baseline="moderate"):
-    t, _ = generate.render_pack(cat(), rules_doc, generate.resolve(cat(), ov(), None), baseline)
+    t, _, _ = generate.render_pack(cat(), rules_doc, generate.resolve(cat(), ov(), None), baseline)
     return t, yaml.safe_dump(t, sort_keys=False).encode()
 
 

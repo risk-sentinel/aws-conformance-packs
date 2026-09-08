@@ -205,7 +205,7 @@ def _rendered_description(rule: dict) -> str:
 
 
 def render_pack(catalog: dict, rules_doc: dict, resolved: dict[str, Resolved],
-                baseline: str) -> tuple[dict, list[dict]]:
+                baseline: str) -> tuple[dict, list[dict], list[dict]]:
     """Build the CloudFormation template and the traceability rows.
 
     Emits the awslabs shape -- Parameter(Default) + Condition(not-empty) +
@@ -216,9 +216,34 @@ def render_pack(catalog: dict, rules_doc: dict, resolved: dict[str, Resolved],
     """
     odps = catalog["odps"]
     parameters, conditions, resources, trace = {}, {}, {}, []
+    excluded: list[dict] = []
 
     for rule_name, rule in (rules_doc.get("rules") or {}).items():
         rule_params: dict[str, object] = {}
+
+        # A rule binding an ODP whose control is outside the TARGET baseline is
+        # skipped, not fatal. Failing the build would make a Low pack
+        # ungeneratable from any catalog containing a Moderate-only rule, which
+        # is not a safety property -- it just means Low cannot be built.
+        #
+        # But an exclusion must never be inferred from absence. It is recorded
+        # with its reason and rendered into the coverage report, so a smaller
+        # pack is visibly smaller BECAUSE the baseline does not ask for those
+        # controls -- not silently missing them.
+        out_of_baseline = [
+            (param, b["odp"], odps[b["odp"]]["control"])
+            for param, b in (rule.get("parameters") or {}).items()
+            if b.get("odp") in odps and baseline not in (odps[b["odp"]].get("baselines") or [])
+        ]
+        if out_of_baseline:
+            excluded.append({
+                "rule": rule_name,
+                "reason": f"binds ODP(s) whose control is not in the {baseline} baseline",
+                "detail": "; ".join(f"{p} -> {o} ({c})" for p, o, c in out_of_baseline),
+                "controls": [normalize_control_id(c)
+                             for c in rule["controls"].get("nist_800_53_r5", [])],
+            })
+            continue
 
         for param, binding in (rule.get("parameters") or {}).items():
             key = binding.get("odp")
@@ -228,16 +253,6 @@ def render_pack(catalog: dict, rules_doc: dict, resolved: dict[str, Resolved],
                     f"odp/catalog.yaml does not declare."
                 )
             odp = odps[key]
-
-            # A rule bound to a control outside the target baseline must not
-            # render. It would measure something the baseline never asked for and
-            # then be counted as coverage of it.
-            if baseline not in (odp.get("baselines") or []):
-                raise GenerationError(
-                    f"rule {rule_name}.{param} binds ODP {key} whose control "
-                    f"{odp['control']} is not in the {baseline} baseline. Remove the "
-                    f"binding for this baseline or widen the ODP's `baselines`."
-                )
 
             r = resolved[key]
             cfn_name = _cfn_param_name(rule_name, param)
@@ -293,7 +308,7 @@ def render_pack(catalog: dict, rules_doc: dict, resolved: dict[str, Resolved],
         "Conditions": conditions,
         "Resources": resources,
     }
-    return template, trace
+    return template, trace, excluded
 
 
 # ---------------------------------------------------------------------------
@@ -349,7 +364,8 @@ TRACE_COLUMNS = ["pack", "rule", "control", "ksi", "coverage", "odp",
 
 def emit(out_dir: Path, slug: str, template: dict, body: bytes, trace: list[dict],
          resolved: dict[str, Resolved], rules_doc: dict, baseline: str,
-         notes: list[str], emit_oscal: bool, snap=None) -> list[Path]:
+         notes: list[str], emit_oscal: bool, snap=None,
+         excluded: list[dict] | None = None) -> list[Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
     written = []
 
@@ -409,6 +425,12 @@ def emit(out_dir: Path, slug: str, template: dict, body: bytes, trace: list[dict
            "`INSUFFICIENT_DATA`.\n\n" if rules_doc.get("region_scope") == "global" else "")
         + "## Coverage by rule\n\n| Coverage | Rules |\n|---|---|\n"
         + "".join(f"| `{k}` | {', '.join(sorted(v))} |\n" for k, v in sorted(by_cov.items()))
+        + ("\n## Excluded from this baseline\n\nThese rules are NOT in this pack. They are "
+           "absent because the controls they bind are not in the " + baseline + " baseline -- "
+           "not because they were forgotten. Coverage must never be inferred from absence.\n\n"
+           "| Rule | Controls | Reason |\n|---|---|---|\n"
+           + "".join(f"| `{e['rule']}` | {', '.join(e['controls'])} | {e['detail']} |\n"
+                     for e in excluded) + "\n" if excluded else "")
         + "\n## Recorder prerequisite\n\nEvery rule here is inert unless the recorder "
           "captures:\n\n"
         + "".join(f"- `{t}`\n" for t in rules_doc.get("required_resource_types", []))
@@ -516,17 +538,21 @@ def main() -> int:
                             f"intersect it is asserting coverage FedRAMP does not."
                         )
 
-            template, trace = render_pack(catalog, rules_doc, resolved, baseline)
+            template, trace, excluded = render_pack(catalog, rules_doc, resolved, baseline)
             body = yaml.safe_dump(template, sort_keys=False, width=100).encode()
             notes = validate_rendered(template, body, rules_doc)
 
             slug = rules_doc["pack_slug"]
             written = emit(args.out, slug, template, body, trace, resolved,
-                           rules_doc, baseline, notes, args.emit_oscal, snap)
+                           rules_doc, baseline, notes, args.emit_oscal, snap, excluded)
 
             n_rules = len(rules_doc["rules"])
-            print(f"{slug}: {n_rules} rules, {len(template['Parameters'])} parameters, "
-                  f"{len(body)} bytes, {len(trace)} traceability rows")
+            rendered = sum(1 for r in template["Resources"].values()
+                           if r["Type"] == "AWS::Config::ConfigRule")
+            print(f"{slug} [{baseline}]: {rendered} rules, {len(template['Parameters'])} "
+                  f"parameters, {len(body)} bytes, {len(trace)} traceability rows")
+            for e in excluded:
+                print(f"  excluded: {e['rule']} — {e['reason']}")
             for n in notes:
                 print(f"  note: {n}")
             for p in written:
