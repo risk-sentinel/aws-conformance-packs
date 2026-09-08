@@ -533,6 +533,12 @@ mode: single-account | organization
 overlay: overlays/mine.yml
 ```
 
+`inputs.yml` and any non-vanilla overlay are **gitignored**. They hold account
+ids, bucket names and Regions, and the README's own instruction is to copy the
+template and fill it in — so without this the first person to follow the
+documentation commits their environment. `docs/dev/issue_rules.md` is explicit
+that account identifiers stay out of the repository's history.
+
 **Nothing gets a default.** A defaulted region reads an empty account and
 reports a clean result; a defaulted bucket files evidence under someone else's
 label. Both are worse than a failed pipeline. The estate's `ci-templates.md`
