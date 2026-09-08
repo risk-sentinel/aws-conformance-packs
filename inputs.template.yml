@@ -90,6 +90,34 @@ overlay: overlays/vanilla.yaml
 baseline: moderate
 
 # ---------------------------------------------------------------------------
+# BOUNDARY (optional) — which services this system actually runs
+# ---------------------------------------------------------------------------
+# The domain packs define the rule UNIVERSE. A boundary selects the subset with
+# resources to evaluate. Declaring one removes rules for services you do not run,
+# and EVERY removal is recorded in the pack's coverage report with its reason —
+# never modelling a rule and excluding it for a stated cause are very different
+# things, and only the second is reviewable.
+#
+# Leaving this empty means NO FILTERING, not an empty boundary. Reading
+# "unconfigured" as "nothing is in scope" would silently drop every rule.
+#
+# Without it, a rule for a service you do not run deploys, evaluates nothing, and
+# reports INSUFFICIENT_DATA forever — which most dashboards render as
+# "not failing".
+boundary:
+  # Service ids, as published in vendor/aws-services/aws-service-availability.json.
+  services: []
+
+  # Or point at a directory of OSCAL component definitions. awslabs' service
+  # CDEFs carry a `service-id` and resolve exactly.
+  #
+  # A CDEF that declares a service but carries NO resolvable `service-id` is a
+  # hard error naming the file, not a silent skip — matching by title is the
+  # guesswork that resolves AWS::RDS::* to DocDB. Custom per-component CDEFs
+  # usually have no props at all; list those under `services` above instead.
+  cdef_dir: ""
+
+# ---------------------------------------------------------------------------
 # GOVERNANCE EVIDENCE (optional)
 # ---------------------------------------------------------------------------
 # The GOV producer emits evidence for the ~120 controls AWS Config cannot see —

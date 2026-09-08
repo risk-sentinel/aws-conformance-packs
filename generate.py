@@ -33,7 +33,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).parent))
 from tools.control_ids import is_control_id, normalize_control_id  # noqa: E402
-from tools import aws_pack, aws_services, fedramp  # noqa: E402
+from tools import aws_pack, aws_services, boundary as boundary_mod, fedramp  # noqa: E402
 
 # Non-increasable AWS Config service limits.
 MAX_RULES_PER_PACK = 130
@@ -253,7 +253,8 @@ def _rendered_description(rule: dict) -> str:
 
 def render_pack(catalog: dict, rules_doc: dict, resolved: dict[str, Resolved],
                 baseline: str, region: str | None = None,
-                svc: "aws_services.Catalog | None" = None
+                svc: "aws_services.Catalog | None" = None,
+                bnd: "boundary_mod.Boundary | None" = None
                 ) -> tuple[dict, list[dict], list[dict]]:
     """Build the CloudFormation template and the traceability rows.
 
@@ -293,6 +294,33 @@ def render_pack(catalog: dict, rules_doc: dict, resolved: dict[str, Resolved],
             for token, key in (rule.get("tokens") or {}).items()
             if key in odps and baseline not in (odps[key].get("baselines") or [])
         ]
+        # A rule for a service the boundary does not run has nothing to evaluate.
+        # This is the #20 premise: domain catalogs define the rule universe, the
+        # boundary selects the subset with resources. Excluded WITH ITS REASON --
+        # never modelling a rule and excluding it for a stated cause are very
+        # different things, and only the second is reviewable.
+        if bnd is not None and bnd.declared:
+            outside = [
+                (rt, svc.for_resource_type(rt).service_id)
+                for rt in (rule.get("resource_types") or [])
+                if svc is not None and svc.for_resource_type(rt) is not None
+                and svc.for_resource_type(rt).service_id not in bnd.services
+            ]
+            # Excluded only when EVERY resource type is outside the boundary. A
+            # rule spanning several types still applies if the boundary runs any
+            # one of them.
+            scoped = [rt for rt in (rule.get("resource_types") or [])
+                      if svc is not None and svc.for_resource_type(rt) is not None]
+            if scoped and len(outside) == len(scoped):
+                excluded.append({
+                    "rule": rule_name,
+                    "reason": "no component in this boundary runs its service",
+                    "detail": "; ".join(f"{rt} ({sid})" for rt, sid in outside),
+                    "controls": [normalize_control_id(c)
+                                 for c in rule["controls"].get("nist_800_53_r5", [])],
+                })
+                continue
+
         # A rule whose service does not exist in the target Region can never
         # evaluate. Today that is invisible: the rule deploys and reports
         # INSUFFICIENT_DATA forever, which reads as "not failing". Excluded with
@@ -703,9 +731,9 @@ def emit(out_dir: Path, slug: str, template: dict, body: bytes, trace: list[dict
            + baseline + " baseline, or a service that does not exist in the target Region -- "
            "not because they were forgotten. Coverage must never be inferred from "
            "absence, so a smaller pack has to be visibly smaller.\n\n"
-           "| Rule | Controls | Reason |\n|---|---|---|\n"
-           + "".join(f"| `{e['rule']}` | {', '.join(e['controls'])} | {e['detail']} |\n"
-                     for e in excluded) + "\n" if excluded else "")
+           "| Rule | Controls | Why | What it bound |\n|---|---|---|---|\n"
+           + "".join(f"| `{e['rule']}` | {', '.join(e['controls'])} | {e['reason']} | "
+                     f"{e['detail']} |\n" for e in excluded) + "\n" if excluded else "")
         + ("\n## Declared but NOT ENFORCED\n\nThese organization-defined parameters have "
            "a value and appear in the evidence tags, and **no rule in this pack enforces "
            "them**. No managed rule exposes the knob. They are listed so the value is "
@@ -765,6 +793,8 @@ def main() -> int:
                     help="override the overlay's baseline_level")
     ap.add_argument("--out", type=Path, default=Path("out"))
     ap.add_argument("--emit-oscal", action="store_true")
+    ap.add_argument("--inputs", type=Path, default=Path("inputs.yml"),
+                    help="read `boundary.services` / `boundary.cdef_dir` from here")
     ap.add_argument("--region", default=None,
                     help="scope to one Region: rules whose service is unavailable there "
                          "are excluded and the exclusion is recorded")
@@ -791,6 +821,14 @@ def main() -> int:
         snap = fedramp.load()
         awsp = aws_pack.load()
         svc = aws_services.load()
+        try:
+            bnd = boundary_mod.resolve(
+                yaml.safe_load(args.inputs.read_text()) if args.inputs.exists() else {},
+                set(svc.services), Path("."))
+        except boundary_mod.BoundaryError as exc:
+            raise GenerationError(str(exc)) from exc
+        if bnd.declared:
+            print(f"boundary: {len(bnd.services)} service(s) declared")
         resolved = resolve(catalog, overlay, oscal)
 
         for rf in rule_files:
@@ -882,7 +920,7 @@ def main() -> int:
                         )
 
             template, trace, excluded = render_pack(catalog, rules_doc, resolved,
-                                                    baseline, args.region, svc)
+                                                    baseline, args.region, svc, bnd)
             body = yaml.safe_dump(template, sort_keys=False, width=100).encode()
             notes = validate_rendered(template, body, rules_doc)
 

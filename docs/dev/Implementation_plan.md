@@ -8,20 +8,19 @@ per-organization ODP overlay. It is a *generator and a deployment pattern*, not 
 profile: there are no InSpec controls here. Evidence leaves this repo as Config
 rule evaluations, which `risk-sentinel/aws-config` converts to HDF.
 
-**Last updated:** 2026-09-08 (**#20 — Region availability now drives pack composition.**
-awslabs publishes an OSCAL component definition per AWS service, and it carries the two
-facts this repo had been asserting by hand: an availability **scope class** (IAM and
-CloudFront are `GLOBAL`) and the **actual Region list** per service (Bedrock is in 15 of
-34, S3 in 34). Both are vendored as a derived index — 398 services — and
-`generate.py --region` now **excludes a rule whose service does not exist there, with the
-reason recorded**, because today such a rule deploys and reports `INSUFFICIENT_DATA`
-forever. Deploying to `ap-southeast-5` drops 7 rules across 4 packs for a stated cause.
-**The resource-type join is explicit, not derived**: a naive string match resolves
-`AWS::RDS::DBCluster` to **DocDB**, since DocumentDB shares the `rds` ARN namespace, and a
-wrong service means a wrong Region scope. Deriving `region_scope` immediately caught a
-real inconsistency — NET declared `regional` while carrying CloudFront. Also fixed: the
-coverage report counted the CATALOG rather than the rendered pack, overstating a pack
-whose rules were excluded.)
+**Last updated:** 2026-09-08 (**#20 complete — a boundary's CDEF list now drives pack
+composition.** `boundary.services` or `boundary.cdef_dir` in `inputs.yml` selects the
+rules that have resources to evaluate. A 7-service boundary takes **157 rules to 85**,
+and every one of the 72 removals is recorded in the coverage report with **why** and
+**what it bound** — never modelling a rule and excluding it for a stated cause are very
+different things, and only the second is reviewable. This is `sparc-iac`'s manual
+107-to-69 trim, derived instead of hand-cut. Two refusals matter more than the feature:
+**an unconfigured boundary means NO FILTERING**, because reading "unconfigured" as
+"nothing is in scope" would drop every rule; and a CDEF that declares a service with no
+resolvable `service-id` is a **hard error naming the file**, because matching by title is
+the guesswork that resolved `AWS::RDS::*` to DocDB, and silently skipping it would shrink
+the boundary so the smaller pack looked like a scoping decision. Custom per-component
+CDEFs (sparc-iac's own) carry no props and correctly refuse.)
 
 ---
 
