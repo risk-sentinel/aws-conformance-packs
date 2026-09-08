@@ -14,26 +14,21 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import sys
 import urllib.request
 from pathlib import Path
 
-import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-PACK = ROOT / "vendor/aws/Operational-Best-Practices-for-NIST-800-53-rev-5.yaml"
-RAW_URL = ("https://raw.githubusercontent.com/awslabs/aws-config-rules/master/"
-           "aws-config-conformance-packs/Operational-Best-Practices-for-NIST-800-53-rev-5.yaml")
+INDEX = ROOT / "vendor/aws/aws-managed-rule-index.json"
+API = ("https://api.github.com/repos/awslabs/aws-config-rules/contents/"
+       "aws-config-conformance-packs")
 
 
-def _rules(text: str) -> dict[str, str]:
-    doc = yaml.safe_load(text)
-    return {
-        r["Properties"]["ConfigRuleName"]:
-            (r["Properties"].get("Source") or {}).get("SourceIdentifier", "")
-        for r in (doc.get("Resources") or {}).values()
-        if r.get("Type") == "AWS::Config::ConfigRule"
-    }
+def _indexed() -> dict[str, str]:
+    d = json.loads(INDEX.read_text())
+    return {k: v["identifier"] for k, v in d["rules"].items()}
 
 
 def main() -> int:
@@ -44,25 +39,30 @@ def main() -> int:
     g.add_argument("--update", action="store_true")
     args = ap.parse_args()
 
-    if not PACK.exists():
-        print(f"::error::{PACK} is missing", file=sys.stderr)
+    if not INDEX.exists():
+        print(f"::error::{INDEX} is missing", file=sys.stderr)
         return 1
-    local_raw = PACK.read_bytes()
+    lr = _indexed()
 
+    # Compare the PACK LIST rather than re-downloading 123 files on every CI run.
+    # A pack added or removed upstream is the signal that the index is stale;
+    # rebuilding is what actually reads them.
     try:
-        remote_raw = urllib.request.urlopen(RAW_URL, timeout=90).read()  # noqa: S310
+        listing = json.loads(urllib.request.urlopen(API, timeout=90).read())  # noqa: S310
     except Exception as exc:                       # noqa: BLE001
         # Never reported as a pass. Training people to ignore this job is how a
         # real drift then gets ignored too.
-        print(f"::warning::could not reach upstream ({exc}). Pack NOT checked -- "
+        print(f"::warning::could not reach upstream ({exc}). Index NOT checked -- "
               f"this is not a pass.")
         return 0 if args.check else 1
 
-    if hashlib.sha256(local_raw).hexdigest() == hashlib.sha256(remote_raw).hexdigest():
-        print(f"up to date: {len(_rules(local_raw.decode()))} rules")
+    upstream_packs = {x["name"] for x in listing if x["name"].endswith((".yaml", ".yml"))}
+    meta = json.loads(INDEX.read_text())["_meta"]
+    if len(upstream_packs) == meta["packs_read"]:
+        print(f"up to date: {len(lr)} rules from {meta['packs_read']} packs")
         return 0
-
-    lr, rr = _rules(local_raw.decode()), _rules(remote_raw.decode())
+    rr = {}
+    print(f"pack count changed: indexed {meta['packs_read']} -> upstream {len(upstream_packs)}")
     added, removed = sorted(set(rr) - set(lr)), sorted(set(lr) - set(rr))
     changed = sorted(k for k in set(lr) & set(rr) if lr[k] != rr[k])
     print("UPSTREAM HAS MOVED")

@@ -201,11 +201,6 @@ rules:
   approved-amis-by-tag:
     source: managed
     identifier: APPROVED_AMIS_BY_TAG
-    not_in_aws_pack: >-
-      Real managed rule, absent from AWS's NIST r5 pack. Identifier and the
-      amisByTagKeyAndValue parameter are UNVERIFIED against a published AWS artifact --
-      and this rule carries an ODP, so a wrong parameter name means the AMI allow-list
-      silently does not apply.
     description: >-
       EC2 instances run an AMI carrying an approved tag.
     resource_types: [AWS::EC2::Instance]
@@ -239,8 +234,6 @@ rules:
   ec2-instance-detailed-monitoring-enabled:
     source: managed
     identifier: EC2_INSTANCE_DETAILED_MONITORING_ENABLED
-    not_in_aws_pack: >-
-      Real managed rule, absent from AWS's NIST r5 pack. Identifier UNVERIFIED.
     description: >-
       EC2 instances have detailed monitoring enabled.
     resource_types: [AWS::EC2::Instance]
@@ -253,8 +246,6 @@ rules:
   ecr-private-image-scanning-enabled:
     source: managed
     identifier: ECR_PRIVATE_IMAGE_SCANNING_ENABLED
-    not_in_aws_pack: >-
-      Real managed rule, absent from AWS's NIST r5 pack. Identifier UNVERIFIED.
     description: >-
       Private ECR repositories have image scanning enabled.
     resource_types: [AWS::ECR::Repository]
@@ -270,8 +261,6 @@ rules:
   ecr-private-tag-immutability-enabled:
     source: managed
     identifier: ECR_PRIVATE_TAG_IMMUTABILITY_ENABLED
-    not_in_aws_pack: >-
-      Real managed rule, absent from AWS's NIST r5 pack. Identifier UNVERIFIED.
     description: >-
       Private ECR repositories enforce tag immutability.
     resource_types: [AWS::ECR::Repository]
@@ -285,10 +274,6 @@ rules:
   lambda-function-settings-check:
     source: managed
     identifier: LAMBDA_FUNCTION_SETTINGS_CHECK
-    not_in_aws_pack: >-
-      Real managed rule, absent from AWS's NIST r5 pack. Identifier and the runtime
-      parameter are UNVERIFIED -- and it carries an ODP, so a wrong parameter name means
-      the runtime allow-list silently does not apply.
     description: >-
       Lambda functions use an approved runtime.
     resource_types: [AWS::Lambda::Function]

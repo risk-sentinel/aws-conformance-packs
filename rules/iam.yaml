@@ -104,11 +104,6 @@ rules:
   secretsmanager-secret-periodic-rotation:
     source: managed
     identifier: SECRETSMANAGER_SECRET_PERIODIC_ROTATION
-    not_in_aws_pack: >-
-      A real managed rule, but absent from AWS's NIST 800-53 Rev 5 pack, which
-      predates it. Identifier and the maxDaysSinceRotation parameter are
-      UNVERIFIED against a published AWS artifact and must be confirmed on the
-      first live deploy.
     description: >-
       Secrets Manager secrets are rotated within the organization-defined period.
     resource_types: [AWS::SecretsManager::Secret]
@@ -122,9 +117,6 @@ rules:
   secretsmanager-secret-unused:
     source: managed
     identifier: SECRETSMANAGER_SECRET_UNUSED
-    not_in_aws_pack: >-
-      Real, but not carried in AWS's NIST r5 pack. Identifier and the
-      unusedForDays parameter are UNVERIFIED against a published AWS artifact.
     description: >-
       Secrets Manager secrets unaccessed beyond the organization-defined period
       are identified for review.
@@ -394,8 +386,6 @@ rules:
   iam-group-has-users-check:
     source: managed
     identifier: IAM_GROUP_HAS_USERS_CHECK
-    not_in_aws_pack: >-
-      Real managed rule, absent from AWS's NIST r5 pack. Identifier UNVERIFIED against a published AWS artifact.
     description: >-
       IAM groups contain at least one user.
     resource_types: [AWS::IAM::Group]
@@ -410,8 +400,6 @@ rules:
   iam-user-no-policies-check:
     source: managed
     identifier: IAM_USER_NO_POLICIES_CHECK
-    not_in_aws_pack: >-
-      Real managed rule, absent from AWS's NIST r5 pack. Identifier UNVERIFIED.
     description: >-
       IAM policies are attached to groups or roles rather than directly to users.
     resource_types: [AWS::IAM::User]
@@ -423,8 +411,6 @@ rules:
   secretsmanager-scheduled-rotation-success-check:
     source: managed
     identifier: SECRETSMANAGER_SCHEDULED_ROTATION_SUCCESS_CHECK
-    not_in_aws_pack: >-
-      Real managed rule, absent from AWS's NIST r5 pack. Identifier UNVERIFIED.
     description: >-
       Scheduled Secrets Manager rotations completed successfully.
     resource_types: [AWS::SecretsManager::Secret]

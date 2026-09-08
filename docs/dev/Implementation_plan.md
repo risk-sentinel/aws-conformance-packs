@@ -8,19 +8,19 @@ per-organization ODP overlay. It is a *generator and a deployment pattern*, not 
 profile: there are no InSpec controls here. Evidence leaves this repo as Config
 rule evaluations, which `risk-sentinel/aws-config` converts to HDF.
 
-**Last updated:** 2026-09-08 (**Crosswalk gap closed — controls touched 36 -> 70,
-Moderate coverage 12% -> 24%.** #26 dispositioned all 94 technical controls FedRAMP
-relates to KSIs our rules already serve: **33 claim, 36 no-signal, 24 gov**, each with a
-stated reason in `docs/dev/crosswalk-dispositions.yaml`. The question asked of each was
-not "is this related" — FedRAMP's mapping already says yes, and unioning it in would have
-tripled reported coverage while making the traceability report worthless. It was **does a
-named rule evaluate a resource attribute bearing on the control's STATEMENT**. Also adds
-`item_pattern` constraints, because AWS takes `amisByTagKeyAndValue` as one
-comma-separated string and **silently ignores a malformed entry** — the allow-list is
-smaller than it reads and more AMIs pass than intended. And `approved_ami_ids` is now
-recorded as **the first ODP that cannot be Region-portable**: an AMI id is scoped to one
-Region, so the same overlay deployed elsewhere allow-lists nothing and every instance
-fails for the wrong reason. Next: the awslabs multi-pack verification index, then Phase 4.)
+**Last updated:** 2026-09-08 (**Managed-rule verification 84% -> 98%.** #28 replaced
+the single-pack check with an index derived from **all 123** of AWS's published
+conformance packs — 503 rules. 24 of our rules were unverifiable only because the NIST
+r5 pack does not happen to carry them; 22 are now confirmed, identifier and every
+parameter name, leaving `sqs-queue-encrypted` and `approved-amis-by-id`. The build
+surfaced two upstream AWS inconsistencies — `autoscaling-multiple-az` carries the wrong
+identifier in one pack of four — so the index records every identifier seen, uses the
+majority, and accepts any of them rather than rejecting a rule over someone else's typo.
+It also refuses to write a **partial** index: one pack uses CloudFormation short-form
+intrinsics that `safe_load` rejects, and silently skipping it would have narrowed
+verification while looking like a clean run. Verification means the identifier and
+parameter NAMES exist as AWS publishes them — never that a rule evaluates what our
+crosswalk claims. Next: Phase 4.)
 
 ---
 
