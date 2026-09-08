@@ -8,17 +8,26 @@ per-organization ODP overlay. It is a *generator and a deployment pattern*, not 
 profile: there are no InSpec controls here. Evidence leaves this repo as Config
 rule evaluations, which `risk-sentinel/aws-config` converts to HDF.
 
-**Last updated:** 2026-09-08 (**The preflight now PASSES for the IAM pack against a live
-account — the first time it has passed against real infrastructure, and the correct
-answer.** Asked to enable global resource recording on a production recorder, it turned
-out to be **already on**: that recorder uses `EXCLUSION_BY_RESOURCE_TYPES`, under which
-AWS records every supported type not on the exclusion list and
-`includeGlobalResourceTypes` is vestigial. `list-discovered-resources` confirmed IAM
-users, roles and policies are recorded. The preflight read the flag literally and
-refused — so **a guard written to prevent a silent misconfiguration would have caused a
-real, unnecessary change to production to satisfy it.** It is now strategy-aware.
-SonarCloud is also onboarded and `SonarCloud Code Analysis` is the **fifth required
-context**; its first analysis found 18 path-traversal findings, since fixed.)
+**Last updated:** 2026-09-08 (**Every KSI id in the issue files was stale — 0 of 28
+still existed.** FedRAMP re-keyed the indicators from numbered to mnemonic form, and the
+re-key is not 1:1: indicators merged (the two CED training indicators are now
+one), moved family
+(vulnerability scanning left MLA for `KSI-SCR-MON`), and one family stopped being a
+family at all — TPR is now a *scoping definition*, not a set of requirements. Mapping by
+position would have produced plausible, wrong ids. Each was mapped by reading the
+indicator's statement; the ledger is `docs/dev/ksi-rekey.md`.
+
+The generator already refused an unknown KSI in a rule catalog. **Nothing checked the
+prose**, which is how the issue files kept a full set of dead ids while every rule passed
+— the scope statement a reviewer reads was the one thing unguarded. `tests/
+test_ksi_ids_in_docs.py` now checks narrative documents too, and pack issues take their
+KSI list from the catalog rather than maintaining a second copy beside it.
+
+Measuring the extension surface for the README's new control summary overturned the
+assumption behind it: these catalogs already carry **all 130 rules of AWS's own Rev 5
+conformance pack**, plus 24 it does not ship. There is no backlog of unclaimed Rev 5
+rules. AWS's pack sits at exactly 130 rules — the hard per-pack cap, to the rule — which
+is the clearest statement of why splitting by domain was the right call.)
 
 ---
 
@@ -518,7 +527,7 @@ Design decisions still open:
   review date, approver, version).
 - Scheduled evaluation, not commit-triggered — a policy that went stale under a
   12-month ODP fails only if something evaluates it on a timer.
-- The **IaC-vs-recorded inventory reconciliation** for KSI-PIY-01 is the
+- The **IaC-vs-recorded inventory reconciliation** for KSI-PIY-GIV is the
   valuable check and the hard one. It diffs IaC-declared resources against
   Config's recorded inventory, which catches shadow resources no pack will ever
   see.

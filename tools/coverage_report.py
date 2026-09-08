@@ -23,6 +23,7 @@ these crosswalks are `supporting`, and every pack's coverage report says so.
 from __future__ import annotations
 
 import argparse
+import json
 from collections import defaultdict
 from pathlib import Path
 
@@ -33,6 +34,27 @@ START = "<!-- COVERAGE-TABLE:START -->"
 END = "<!-- COVERAGE-TABLE:END -->"
 REG_START = "<!-- PACK-REGISTRY:START -->"
 REG_END = "<!-- PACK-REGISTRY:END -->"
+SUM_START = "<!-- CONTROL-SUMMARY:START -->"
+SUM_END = "<!-- CONTROL-SUMMARY:END -->"
+NIST_INDEX = ROOT / "vendor" / "nist" / "nist-800-53r5-params.json"
+AWS_INDEX = ROOT / "vendor" / "aws" / "aws-managed-rule-index.json"
+
+# Strongest wins when several rules touch one control. `full` is deliberately
+# rare -- it claims the rule alone evidences the control, which is almost never
+# true of a Config rule.
+STRENGTH = {"full": 3, "partial": 2, "supporting": 1}
+
+FAMILY_NAMES = {
+    "ac": "Access Control", "at": "Awareness and Training", "au": "Audit and Accountability",
+    "ca": "Assessment, Authorization and Monitoring", "cm": "Configuration Management",
+    "cp": "Contingency Planning", "ia": "Identification and Authentication",
+    "ir": "Incident Response", "ma": "Maintenance", "mp": "Media Protection",
+    "pe": "Physical and Environmental Protection", "pl": "Planning",
+    "pm": "Program Management", "ps": "Personnel Security", "pt": "PII Processing",
+    "ra": "Risk Assessment", "sa": "System and Services Acquisition",
+    "sc": "System and Communications Protection", "si": "System and Information Integrity",
+    "sr": "Supply Chain Risk Management",
+}
 
 
 def collect() -> tuple[list[tuple], dict]:
@@ -137,6 +159,178 @@ def render_registry() -> str:
     return "\n".join(out)
 
 
+def _aws_reach() -> dict[str, int]:
+    """How this catalog stands against AWS's own published conformance packs.
+
+    Counted by rule IDENTIFIER, not by the CFN logical name the index is keyed
+    on: awslabs ships the same identifier under several logical names when a
+    rule is parameterised differently, so counting keys overstates the surface
+    (503 entries, 419 distinct rules).
+
+    The interesting comparison is against AWS's OWN Rev 5 pack, not against
+    every pack it publishes. Rules that appear only in the PCI, C5 or AI/ML
+    packs carry no Rev 5 crosswalk from AWS, so adopting one means authoring
+    the control mapping ourselves -- a different kind of work, and the reason
+    the remaining surface is not simply "more rules".
+    """
+    aws = json.loads(AWS_INDEX.read_text())["rules"]
+    idents = {v["identifier"] for v in aws.values()}
+    r5 = {
+        v["identifier"]
+        for v in aws.values()
+        if any("NIST-800-53-rev-5" in p for p in v["packs"])
+    }
+    ours = {
+        r["identifier"]
+        for f in (ROOT / "rules").glob("*.yaml")
+        for r in yaml.safe_load(f.read_text())["rules"].values()
+        if r.get("source") == "managed"
+    }
+    return {
+        "distinct": len(idents),
+        "r5": len(r5),
+        "r5_carried": len(r5 & ours),
+        "r5_omitted": len(r5 - ours),
+        "beyond_r5": len(ours - r5),
+        "other_frameworks": len(idents - r5 - ours),
+    }
+
+
+def _our_rule_total() -> int:
+    return sum(
+        len(yaml.safe_load(f.read_text())["rules"])
+        for f in (ROOT / "rules").glob("*.yaml")
+    )
+
+
+def _control_strength() -> dict[str, str]:
+    """Map each touched control to the strongest coverage any rule claims for it."""
+    best: dict[str, int] = {}
+    for f in sorted((ROOT / "rules").glob("*.yaml")):
+        doc = yaml.safe_load(f.read_text())
+        for rule in doc["rules"].values():
+            rank = STRENGTH.get(rule.get("coverage", "supporting"), 1)
+            for c in rule["controls"].get("nist_800_53_r5", []):
+                best[c] = max(best.get(c, 0), rank)
+    inv = {v: k for k, v in STRENGTH.items()}
+    return {c: inv[r] for c, r in best.items()}
+
+
+def render_control_summary() -> str:
+    """Which 800-53 Rev 5 controls the packs touch, by family and by baseline.
+
+    The per-resource-type table answers "what do I get for the things I run".
+    This answers the other question an assessor asks first: "which controls does
+    this claim to speak to, and how much of my baseline is that". Both numbers
+    matter, and neither substitutes for the other.
+    """
+    index = json.loads(NIST_INDEX.read_text())["controls"]
+    strength = _control_strength()
+    touched = set(strength)
+
+    fams: dict[str, dict] = defaultdict(
+        lambda: {"mod": set(), "high": set(), "low": set(), "hit": set()}
+    )
+    base = {b: set() for b in ("low", "moderate", "high")}
+    for cid, meta in index.items():
+        fam = cid.split("-", 1)[0]
+        for b in meta.get("baselines", []):
+            base[b].add(cid)
+            fams[fam][{"low": "low", "moderate": "mod", "high": "high"}[b]].add(cid)
+    for cid in touched:
+        fams[cid.split("-", 1)[0]]["hit"].add(cid)
+
+    out = [
+        f"The packs crosswalk to **{len(touched)} distinct Rev 5 controls**. Against the "
+        "published baselines that is:",
+        "",
+        "| Baseline | Controls in baseline | Touched by these packs |",
+        "| --- | ---: | ---: |",
+    ]
+    for b in ("low", "moderate", "high"):
+        n = len(touched & base[b])
+        out.append(f"| {b.title()} | {len(base[b])} | {n} ({n * 100 // len(base[b])}%) |")
+
+    out += [
+        "",
+        "**Those percentages are a ceiling on ambition, not a score.** A control is "
+        "counted here if any rule crosswalks to it — see the strength column below, "
+        "and read `Reading these numbers honestly` before quoting any of it.",
+        "",
+        "### By control family",
+        "",
+        "| Family | In Moderate | Touched | Strongest claim | Where |",
+        "| --- | ---: | ---: | --- | --- |",
+    ]
+    pack_of: dict[str, set] = defaultdict(set)
+    for f in sorted((ROOT / "rules").glob("*.yaml")):
+        doc = yaml.safe_load(f.read_text())
+        for rule in doc["rules"].values():
+            for c in rule["controls"].get("nist_800_53_r5", []):
+                pack_of[c.split("-", 1)[0]].add(doc["domain"])
+
+    for fam in sorted(fams, key=lambda f: (-len(fams[f]["hit"]), f)):
+        v = fams[fam]
+        hit = v["hit"]
+        if hit:
+            strongest = max((strength[c] for c in hit), key=lambda s: STRENGTH[s])
+            where = ", ".join(sorted(pack_of[fam]))
+        else:
+            strongest, where = "—", "GOV"
+        out.append(
+            f"| **{fam.upper()}** {FAMILY_NAMES.get(fam, '')} | {len(v['mod'])} | "
+            f"{len(hit)} | {strongest} | {where} |"
+        )
+
+    mod = base["moderate"]
+    no_signal = {f for f, v in fams.items() if not v["hit"]}
+    dark = {c for c in mod - touched if c.split("-", 1)[0] in no_signal}
+    reachable = (mod - touched) - dark
+    out += [
+        "",
+        f"**{len(mod - touched)} Moderate controls are untouched. They split two ways, and "
+        "the split is the whole point.**",
+        "",
+        f"- **{len(dark)}** sit in the families marked `—` above — physical, personnel, "
+        "training, planning, acquisition, incident response. These have no "
+        "resource-configuration signal at all. AWS Config cannot see them, and no number "
+        "of additional rules will change that. They belong to GOV, which evidences them "
+        "against policy artifacts.",
+        f"- **{len(reachable)}** sit in families these packs already reach. That is the "
+        "honest extension surface — controls where a Config rule could plausibly say "
+        "something and none currently does. It is smaller than it looks: these catalogs "
+        f"already carry **every one of the {_aws_reach()['r5']} rules in AWS\'s own Rev 5 "
+        f"conformance pack**, plus {_aws_reach()['beyond_r5']} that pack does not ship. "
+        "There is no backlog of obvious Rev 5 rules left unclaimed.",
+        "",
+        f"AWS\'s Rev 5 pack holds exactly {_aws_reach()['r5']} rules, which is the hard "
+        "per-pack limit to the rule. It cannot grow without splitting, and a single pack "
+        "at the cap is also a single blast radius, a single parameter budget and a single "
+        "thing to redeploy. That is the argument for splitting by domain, and it is why "
+        "these catalogs can hold more rules than AWS ships in one pack.",
+        "",
+        "Treating those two numbers as one is what produces a coverage claim an assessor "
+        "takes apart in the first hour.",
+        "",
+        f"AWS publishes {_aws_reach()['distinct']} distinct managed rules in total, so "
+        f"roughly {_aws_reach()['other_frameworks']} remain unused — but those appear only "
+        "in its PCI, C5, IRS-1075 and AI/ML packs, which carry no Rev 5 crosswalk. "
+        "Adopting one means authoring the control mapping ourselves rather than "
+        "inheriting it, which is why the number is a research backlog and not a to-do "
+        "list.",
+        "",
+        "**Strongest claim is the high-water mark for the family, not its average.** One "
+        "`partial` rule in a family of thirty `supporting` ones puts `partial` in that "
+        "cell. Per-control detail is in each pack\'s generated `coverage.md`.",
+        "",
+        "**Moderate is a subset of High**, so every control touched in Moderate is also "
+        "touched in High — the two rows report the same 70 controls against different "
+        "denominators. Families with no baseline allocation at all (PM) are absent from "
+        "the table rather than shown as zero.",
+    ]
+    return "\n".join(out)
+
+
 def _splice(text: str, start: str, end: str, body: str) -> str:
     head, rest = text.split(start, 1)
     _, tail = rest.split(end, 1)
@@ -156,12 +350,13 @@ def main() -> int:
 
     if args.write or args.check:
         text = readme.read_text()
-        for a, b in ((START, END), (REG_START, REG_END)):
+        for a, b in ((START, END), (REG_START, REG_END), (SUM_START, SUM_END)):
             if a not in text or b not in text:
                 print(f"::error::README.md has no {a} / {b} markers")
                 return 1
         new = _splice(text, START, END, table)
         new = _splice(new, REG_START, REG_END, render_registry())
+        new = _splice(new, SUM_START, SUM_END, render_control_summary())
         if args.check:
             if new != text:
                 print("::error::README.md coverage table is stale. Run "

@@ -6,7 +6,7 @@ labels: pack, domain:iam
 ## Scope
 
 **800-53r5 families:** AC (2, 3, 5, 6, 17), IA (2, 4, 5, 7, 8), partial AU-9
-**20x KSIs:** KSI-IAM-01 … KSI-IAM-06
+**20x KSIs:** KSI-IAM-AAM, KSI-IAM-APM, KSI-IAM-ELP, KSI-IAM-JIT
 **AWS services:** IAM, Organizations, IAM Identity Center, STS, Secrets Manager
 **Resource types:** `AWS::IAM::User`, `::Role`, `::Policy`, `::Group`, `AWS::SecretsManager::Secret`
 
@@ -64,8 +64,8 @@ pack-composition time with its reason recorded (see #20). Assignment rationale i
 - **`iam-policy-no-statements-with-admin-access` covers customer-managed policies
   only.** `AdministratorAccess` attached directly to a principal is out of scope.
   Least-privilege claims resting on this rule alone are overstated — Guard rule
-  needed if KSI-IAM-04 is load-bearing.
-- **MFA rules cannot see phishing resistance.** KSI-IAM-01 asks specifically for
+  needed if KSI-IAM-ELP is load-bearing.
+- **MFA rules cannot see phishing resistance.** KSI-IAM-APM asks specifically for
   phishing-resistant methods; the managed rules only see that MFA exists. Mark
   coverage `partial` and say why.
 

@@ -6,7 +6,7 @@ labels: pack, domain:crypto
 ## Scope
 
 **800-53r5 families:** SC-8, SC-12, SC-13, SC-28, MP-5, SI-7 (partial)
-**20x KSIs:** KSI-SVC-02, -03, -05, -06
+**20x KSIs:** KSI-CNA-ULN, KSI-SVC-ASM, KSI-SVC-SIN
 **AWS services:** KMS, ACM, S3, EBS, RDS, EFS, DynamoDB, SNS, SQS, ELBv2
 **Resource types:** `AWS::KMS::Key`, `AWS::ACM::Certificate`, `AWS::S3::Bucket`, `AWS::EC2::Volume`, `AWS::RDS::DBInstance`, `AWS::EFS::FileSystem`, `AWS::ElasticLoadBalancingV2::Listener`
 

@@ -6,7 +6,7 @@ labels: pack, domain:rpl
 ## Scope
 
 **800-53r5 families:** CP (9, 10), SC-5 (partial), SI-13
-**20x KSIs:** KSI-RPL-01 … KSI-RPL-04; KSI-CNA-06
+**20x KSIs:** KSI-RPL-ABO, KSI-RPL-RRO
 **AWS services:** AWS Backup, RDS, DynamoDB, EFS, S3, Auto Scaling, ELB
 **Resource types:** `AWS::Backup::BackupPlan`, `::BackupSelection`, `::RecoveryPoint`, `AWS::RDS::DBInstance`, `AWS::DynamoDB::Table`, `AWS::AutoScaling::AutoScalingGroup`
 
@@ -51,10 +51,10 @@ pack-composition time with its reason recorded (see #20). Assignment rationale i
   ODP expressed in hours must render both the value and the matching unit; a
   mismatch silently changes the meaning of the check by a factor of 24. Validate
   the pair together in the generator, not independently.
-- **RTO/RPO (KSI-RPL-01) have no configuration signal.** Backup frequency is a
+- **RTO/RPO (KSI-RPL-RRO) have no configuration signal.** Backup frequency is a
   proxy for RPO at best and says nothing about RTO. Model as attestation and
   resist the temptation to map frequency rules to RPL-01.
-- **KSI-RPL-04 (regularly test recovery) is a process artifact.** Restore-test
+- **KSI-RPL-TRC (regularly test recovery) is a process artifact.** Restore-test
   evidence comes from the runbook/CI producer, not Config.
 - **`s3-bucket-versioning-enabled` is not a backup.** It appears in many
   published crosswalks under CP-9; mark coverage `supporting` at most.

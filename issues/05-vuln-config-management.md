@@ -6,7 +6,7 @@ labels: pack, domain:vcm
 ## Scope
 
 **800-53r5 families:** CM (2, 3, 6, 7, 8), SI-2, RA-5
-**20x KSIs:** KSI-SVC-01, -07; KSI-MLA-03, -04, -05; KSI-CMT-02, -03
+**20x KSIs:** KSI-CMT-RMV, KSI-CMT-VTD, KSI-CNA-IBP, KSI-IAM-JIT, KSI-MLA-EVC, KSI-PIY-GIV, KSI-SCR-MON, KSI-SVC-ACM
 **AWS services:** SSM, Inspector, ECR, EC2, Lambda, ECS
 **Resource types:** `AWS::SSM::PatchCompliance`, `::AssociationCompliance`, `AWS::EC2::Instance`, `AWS::ECR::Repository`, `AWS::Lambda::Function`
 
@@ -57,10 +57,10 @@ pack-composition time with its reason recorded (see #20). Assignment rationale i
   every image build. Prefer the tag-based variant or the ODP becomes a
   maintenance treadmill that quietly gets ignored.
 - **CM-3 (change control) is process, not configuration.** CloudTrail evidences
-  that changes happened, never that they were authorized. KSI-CMT-03 (automated
+  that changes happened, never that they were authorized. KSI-CMT-VTD (automated
   testing before deployment) is a pipeline property — evidence belongs in the
   CI/CD producer, not this pack.
-- **RA-5 / KSI-MLA-04 (authenticated vulnerability scanning)** is Inspector's
+- **RA-5 / KSI-SCR-MON (authenticated vulnerability scanning)** is Inspector's
   job. Inspector findings are not Config rule results; route through Security
   Hub → HDF instead of trying to force a Config rule.
 
@@ -69,4 +69,4 @@ pack-composition time with its reason recorded (see #20). Assignment rationale i
 - [ ] Instance-count vs managed-instance-count gap check implemented
 - [ ] Patch-window ODP marked evidence-only in the catalog and in evidence tags
 - [ ] Tag-based AMI approval preferred over id lists, with rationale recorded
-- [ ] KSI-MLA-04 and KSI-CMT-03 routed to non-Config producers, documented
+- [ ] KSI-SCR-MON and KSI-CMT-VTD routed to non-Config producers, documented
