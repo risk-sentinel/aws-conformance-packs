@@ -11,6 +11,7 @@ fail is not a guard.
 from __future__ import annotations
 
 import copy
+from datetime import date
 import json
 import sys
 from pathlib import Path
@@ -20,6 +21,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import generate  # noqa: E402
+from tools.control_ids import normalize_control_id  # noqa: E402
 from generate import GenerationError  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -1003,3 +1005,103 @@ def test_preflight_passes_a_correctly_configured_region(monkeypatch):
         return {"DeliveryChannels": [{"name": "default"}]}
     monkeypatch.setattr(p, "_aws", fake)
     assert p.check_region("us-east-1", {"AWS::EC2::Instance"}, None, True) == []
+
+
+# --- GOV: evidence for controls AWS Config cannot see ------------------------
+
+def _gov():
+    return _load("gov_evidence")
+
+
+GOV_ODPS = {
+    "policy_review_interval_days": 365,
+    "procedure_review_interval_days": 365,
+    "approved_policy_approver_roles": ["ciso", "iso", "isso", "authorizing-official",
+                                       "system-owner"],
+}
+
+
+def test_gov_emits_zero_config_rules():
+    """GOV is a non-Config producer BY DESIGN. If a rules/gov.yaml ever appears,
+    the whole premise -- that ~120 controls have no resource signal -- has been
+    quietly abandoned."""
+    assert not (ROOT / "rules/gov.yaml").exists()
+
+
+def test_existence_alone_never_satisfies_a_control():
+    """'The policy file exists' is theater. It is emitted so its weakness is
+    visible, and it is labelled -- but a document that exists and fails
+    everything else is FAILED, not passed."""
+    g = _gov()
+    controls = g.evaluate(ROOT / "gov/artifacts", GOV_ODPS, today=date(2026, 9, 8))
+    bad = next(c for c in controls if c["id"] == "gov-au-1")
+    existence = next(r for r in bad["results"] if "exists" in r["code_desc"])
+    assert existence["status"] == "passed"
+    assert "WEAK EVIDENCE" in existence["message"]
+    assert bad["status"] == "failed", "existence must not carry a control on its own"
+
+
+def test_the_three_real_checks_all_fire():
+    g = _gov()
+    controls = g.evaluate(ROOT / "gov/artifacts", GOV_ODPS, today=date(2026, 9, 8))
+    bad = next(c for c in controls if c["id"] == "gov-au-1")
+    msgs = " ".join(r.get("message", "") for r in bad["results"] if r["status"] == "failed")
+    assert "exceeding the organization-defined interval" in msgs   # review recency
+    assert "is not one of" in msgs                                  # approver authority
+    assert "SSP cites" in msgs                                      # version reconciliation
+
+
+def test_a_compliant_artifact_passes_all_four():
+    g = _gov()
+    controls = g.evaluate(ROOT / "gov/artifacts", GOV_ODPS, today=date(2026, 9, 8))
+    good = next(c for c in controls if c["id"] == "gov-ac-1")
+    assert good["status"] == "passed"
+    assert all(r["status"] == "passed" for r in good["results"])
+
+
+def test_review_recency_is_evaluated_against_TODAY_not_a_commit():
+    """The reason this producer runs on a timer. Nothing changes in the artifact
+    when it goes stale -- only the date does."""
+    g = _gov()
+    fresh = g.evaluate(ROOT / "gov/artifacts", GOV_ODPS, today=date(2026, 3, 20))
+    stale = g.evaluate(ROOT / "gov/artifacts", GOV_ODPS, today=date(2027, 12, 1))
+    ac_fresh = next(c for c in fresh if c["id"] == "gov-ac-1")
+    ac_stale = next(c for c in stale if c["id"] == "gov-ac-1")
+    assert ac_fresh["status"] == "passed"
+    assert ac_stale["status"] == "failed", "the same file must fail once the interval lapses"
+
+
+def test_missing_front_matter_fails_rather_than_skipping(tmp_path):
+    (tmp_path / "broken.md").write_text("no front matter here\n")
+    controls = _gov().evaluate(tmp_path, GOV_ODPS, today=date(2026, 9, 8))
+    assert controls[0]["results"][0]["status"] == "failed", \
+        "a skip would read as 'nothing to check here'"
+
+
+def test_inventory_reconciliation_skips_rather_than_passes_with_no_input():
+    """An absent input must never read as a clean result."""
+    c = _gov().inventory_reconciliation(None, None)
+    assert c["status"] == "skipped"
+    assert "NOT as passed" in c["results"][0]["message"]
+
+
+def test_inventory_reconciliation_finds_shadow_resources(tmp_path):
+    """The check that earns its place: shadow resources are invisible to every
+    conformance pack, because a pack only evaluates what the recorder knows."""
+    iac = tmp_path / "iac.json"; iac.write_text(json.dumps(["a", "b"]))
+    rec = tmp_path / "rec.json"; rec.write_text(json.dumps(["a", "SHADOW"]))
+    c = _gov().inventory_reconciliation(iac, rec)
+    assert c["status"] == "failed"
+    msgs = " ".join(r.get("message", "") for r in c["results"])
+    assert "SHADOW" in msgs                      # recorded but undeclared
+    assert "not recorded" in msgs                # declared but absent
+
+
+def test_gov_control_ids_use_the_shared_normalizer():
+    """If GOV emits AC-1 and a pack emits ac-2 the Heimdall rollup fragments --
+    and a fragmented rollup looks like partial coverage, not like a defect."""
+    g = _gov()
+    controls = g.evaluate(ROOT / "gov/artifacts", GOV_ODPS, today=date(2026, 9, 8))
+    for c in controls:
+        for n in c["tags"].get("nist", []):
+            assert normalize_control_id(n) == n.lower()

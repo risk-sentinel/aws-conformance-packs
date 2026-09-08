@@ -599,3 +599,111 @@ odps:
       a frequency rule to this would assert a recovery objective from a setting
       that cannot evidence it, so the value is carried in evidence and visibly
       not enforced. Restore-test evidence belongs to the runbook or CI producer.
+
+  # ===========================================================================
+  # GOVERNANCE — the -1 policy controls and their review cadences
+  # ---------------------------------------------------------------------------
+  # NONE of these is enforceable by an AWS Config rule. They are evaluated by the
+  # GOV producer against policy artifacts in a repository, not against resources,
+  # which is why this domain emits zero Config rules by design.
+  #
+  # The policy review interval is the single highest-leverage ODP in the
+  # programme: it applies to all 18 `-1` controls at once.
+  # ===========================================================================
+
+  policy_review_interval_days:
+    description: >-
+      Interval at which each control family's policy document must be reviewed
+      and updated.
+    control: ac-1
+    oscal_param_id: ac-01_odp.05
+    oscal_alt_id: ac-1_prm_5
+    oscal_label: frequency
+    baselines: [low, moderate, high]
+    type: integer
+    constraint: { min: 1, max: 1095 }
+    default: 365
+
+  procedure_review_interval_days:
+    description: >-
+      Interval at which each control family's procedures are reviewed. Often
+      shorter than the policy interval, which is why it is a separate knob.
+    control: ac-1
+    oscal_param_id: ac-01_odp.05
+    oscal_alt_id: ac-1_prm_5
+    oscal_label: frequency
+    baselines: [low, moderate, high]
+    type: integer
+    constraint: { min: 1, max: 1095 }
+    default: 365
+
+  security_training_interval_days:
+    description: >-
+      Interval at which security literacy training is provided to system users.
+    control: at-2
+    oscal_param_id: at-02_odp.01
+    oscal_alt_id: at-2_prm_1
+    oscal_label: frequency
+    baselines: [low, moderate, high]
+    type: integer
+    constraint: { min: 1, max: 1095 }
+    default: 365
+
+  incident_report_deadline_hours:
+    description: >-
+      Time within which personnel must report a suspected incident.
+    control: ir-6
+    oscal_param_id: ir-06_odp.01
+    oscal_alt_id: ir-6_prm_1
+    oscal_label: time period
+    baselines: [low, moderate, high]
+    type: integer
+    constraint: { min: 1, max: 720 }
+    # FedRAMP sets an incident reporting expectation that is shorter than most
+    # organizations assume. This default is a teaching value, not the FedRAMP
+    # requirement -- check the current program guidance, which changes more often
+    # than 800-53 does.
+    default: 24
+
+  contingency_test_interval_days:
+    description: >-
+      Interval at which the contingency plan is tested.
+    control: cp-4
+    oscal_param_id: cp-04_odp.01
+    oscal_alt_id: cp-4_prm_1
+    oscal_label: frequency
+    baselines: [low, moderate, high]
+    type: integer
+    constraint: { min: 1, max: 1095 }
+    default: 365
+
+  account_review_interval_days:
+    description: >-
+      Interval at which system accounts are reviewed for continued need.
+    control: ac-2
+    oscal_param_id: ac-02_odp.10
+    oscal_alt_id: ac-2_prm_10
+    oscal_label: frequency
+    baselines: [low, moderate, high]
+    type: integer
+    constraint: { min: 1, max: 365 }
+    # DISTINCT from credential_inactivity_days in the IAM pack. That one is a
+    # threshold a Config rule enforces on credentials; this is how often a human
+    # reviews the account list, which nothing in AWS can observe.
+    default: 90
+
+  approved_policy_approver_roles:
+    description: >-
+      Roles authorized to approve a policy or procedure document.
+    control: ac-1
+    oscal_param_id: ac-01_odp.03
+    oscal_alt_id: ac-1_prm_3
+    oscal_label: personnel or roles
+    baselines: [low, moderate, high]
+    type: list
+    item_type: string
+    constraint: { max_items: 12 }
+    # An approver of record is what distinguishes a reviewed policy from an
+    # edited file. A document approved by nobody, or by someone without the
+    # authority to accept the risk, is not evidence.
+    default: [ciso, iso, isso, authorizing-official, system-owner]

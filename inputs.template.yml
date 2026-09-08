@@ -90,6 +90,28 @@ overlay: overlays/vanilla.yaml
 baseline: moderate
 
 # ---------------------------------------------------------------------------
+# GOVERNANCE EVIDENCE (optional)
+# ---------------------------------------------------------------------------
+# The GOV producer emits evidence for the ~120 controls AWS Config cannot see —
+# the 18 `-1` policy controls, and AT/PS/PL/PM/SA/SR in bulk. It produces ZERO
+# Config rules; it evaluates policy artifacts in a repository.
+gov:
+  # Directory of policy artifacts. NO DEFAULT, because a default would point at
+  # somebody else's policies. `gov/artifacts/` in this repo holds two worked
+  # examples — one compliant, one deliberately not — so the front-matter contract
+  # is concrete. See gov/README.md.
+  artifact_dir: ""
+
+  # KSI-PIY-GIV inventory reconciliation. Diffing what IaC declares against what
+  # AWS Config actually recorded catches shadow resources and drift that no
+  # conformance pack can see. Both paths are JSON arrays of resource identifiers.
+  #
+  # Leave empty and the check reports SKIPPED — never passed. An absent input
+  # must not read as a clean result.
+  iac_inventory: ""
+  recorded_inventory: ""
+
+# ---------------------------------------------------------------------------
 # SAFETY
 # ---------------------------------------------------------------------------
 safety:
