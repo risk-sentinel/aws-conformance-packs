@@ -428,7 +428,12 @@ def test_every_candidate_rule_named_in_the_issue_is_built():
         sec = (ROOT / f"issues/{issue}.md").read_text() \
             .split("## Candidate managed rules")[1].split("\n## ")[0]
         cands = {c for c in re.findall(r"`([a-z0-9]+(?:-[a-z0-9]+)+)`", sec) if not c.isupper()}
-        built = set(yaml.safe_load(cat.read_text())["rules"])
+        # A rule an issue marks "(shared with NET)" is satisfied by being built
+        # in the domain that owns it. The test asks whether any named rule goes
+        # UNBUILT, not whether each domain re-declares rules it shares.
+        built = set()
+        for other in (ROOT / "rules").glob("*.yaml"):
+            built |= set(yaml.safe_load(other.read_text())["rules"])
         if missing := cands - built:
             shortfalls[dom] = sorted(missing)
     assert started, "no rule catalogs found at all"
@@ -647,3 +652,49 @@ def test_every_overlay_covers_every_odp():
     for name in ("vanilla.yaml", "vanilla-low.yaml", "vanilla-high.yaml"):
         o = yaml.safe_load((ROOT / "overlays" / name).read_text())
         assert {p["param_id"] for p in o["parameters"]} == declared, name
+
+
+# --- VCM: evidence-only ODPs, and the absent-not-failing trap ----------------
+
+VCM = yaml.safe_load((ROOT / "rules/vcm.yaml").read_text())
+
+
+def test_evidence_only_odp_cannot_be_bound_to_a_rule_parameter():
+    """Binding one would make an unenforceable value look enforced, which is the
+    single thing this catalog most exists to prevent."""
+    c = cat()
+    v = copy.deepcopy(VCM)
+    v["rules"]["ec2-managedinstance-patch-compliance-status-check"]["parameters"] = {
+        "someParam": {"odp": "critical_patch_window_days"}}
+    with pytest.raises(GenerationError, match="evidence_only"):
+        generate.render_pack(c, v, generate.resolve(c, ov(), None), "moderate")
+
+
+def test_evidence_only_odp_appears_in_evidence_named_as_unenforced(tmp_path):
+    assert _run_cli(tmp_path, ["--rules", str(ROOT / "rules/vcm.yaml")]) == 0
+    tags = json.loads((tmp_path / "out/800-53r5-VCM.evidence-tags.json").read_text())
+    eo = {e["odp"]: e for e in tags["evidence_only_odps"]}
+    assert "critical_patch_window_days" in eo
+    e = eo["critical_patch_window_days"]
+    assert e["value"] and e["assigned_by"] and e["control"] == "si-2"
+    # The reason must travel with it -- an unexplained unenforceable ODP is
+    # indistinguishable from one somebody forgot to wire up.
+    assert "no aws config managed rule" in e["why_unenforced"].lower()
+
+
+def test_evidence_only_reason_is_required_not_a_bare_flag():
+    """Checked by the lint, asserted here so the requirement is visible."""
+    assert isinstance(CATALOG["odps"]["critical_patch_window_days"]["evidence_only"], str)
+    assert len(CATALOG["odps"]["critical_patch_window_days"]["evidence_only"]) > 80
+
+
+def test_vcm_carries_the_absent_not_failing_warning(tmp_path):
+    """The worst false assurance in the programme: an unregistered instance is
+    ABSENT from managedinstance results, not non-compliant."""
+    assert _run_cli(tmp_path, ["--rules", str(ROOT / "rules/vcm.yaml")]) == 0
+    md = (tmp_path / "out/800-53r5-VCM.coverage.md").read_text()
+    assert "ABSENT from the results" in md
+    assert "Declared but NOT ENFORCED" in md
+    t = yaml.safe_load((tmp_path / "out/800-53r5-VCM.yaml").read_text())
+    d = t["Resources"]["Ec2InstanceManagedBySystemsManager"]["Properties"]["Description"]
+    assert "ABSENT" in d           # the gap-making rule says so on the rule itself

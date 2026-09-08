@@ -352,6 +352,14 @@ def check_odp_catalog(root: Path, rep: Report) -> None:
                 )
                 bad += 1
 
+        if "evidence_only" in odp and not str(odp["evidence_only"]).strip():
+            rep.fail(
+                f"{where}: `evidence_only` must carry a REASON explaining why no rule "
+                f"can enforce it, not a bare flag. An unexplained unenforceable ODP is "
+                f"indistinguishable from one somebody forgot to wire up."
+            )
+            bad += 1
+
         # The one that catches a catalog contradicting itself.
         if (reason := _violates_constraint(odp["default"], odp)):
             rep.fail(f"{where}: default violates its own constraint -- {reason}")

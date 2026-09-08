@@ -413,3 +413,79 @@ odps:
     type: integer
     constraint: { min: 1, max: 365 }
     default: 1
+
+  # ===========================================================================
+  # cm-2 — Baseline Configuration
+  # ===========================================================================
+
+  approved_ami_tag_pairs:
+    description: >-
+      Tag key/value pairs identifying an AMI as approved for launch.
+    control: cm-2
+    oscal_param_id: cm-02_odp.02
+    oscal_alt_id: cm-2_prm_2
+    oscal_label: circumstances
+    baselines: [low, moderate, high]
+    type: list
+    item_type: string
+    constraint: { max_items: 10 }
+    # Deliberately empty and TAG-based rather than id-based. An AMI id list goes
+    # stale on every image build, which turns the ODP into a maintenance treadmill
+    # that quietly stops being updated -- and a stale allow-list fails closed on
+    # every new image, so people widen it until it means nothing.
+    default: []
+
+  stopped_instance_allowed_days:
+    description: >-
+      Days an EC2 instance may remain stopped before it is reported.
+    control: cm-2
+    oscal_param_id: cm-02_odp.01
+    oscal_alt_id: cm-2_prm_1
+    oscal_label: frequency
+    baselines: [low, moderate, high]
+    type: integer
+    constraint: { min: 1, max: 365 }
+    default: 30
+
+  # ===========================================================================
+  # cm-7 — Least Functionality
+  # ===========================================================================
+
+  approved_lambda_runtimes:
+    description: >-
+      Lambda runtimes permitted, as the least-functionality allow-list.
+    control: cm-7
+    oscal_param_id: cm-07_odp.01
+    oscal_alt_id: cm-7_prm_1
+    oscal_label: mission-essential capabilities
+    baselines: [low, moderate, high]
+    type: list
+    item_type: string
+    constraint: { max_items: 20 }
+    # Empty means the rule does not constrain runtime. Populate with the runtimes
+    # your organization supports; an out-of-date list is how an EOL runtime stays
+    # in production while the pack reports compliant.
+    default: []
+
+  # ===========================================================================
+  # si-2 — Flaw Remediation — EVIDENCE ONLY
+  # ===========================================================================
+
+  critical_patch_window_days:
+    description: >-
+      Days within which a critical flaw must be remediated after discovery.
+    control: si-2
+    oscal_param_id: si-02_odp
+    oscal_alt_id: si-2_prm_1
+    oscal_label: time period
+    baselines: [low, moderate, high]
+    type: integer
+    constraint: { min: 1, max: 365 }
+    default: 30
+    evidence_only: >-
+      No AWS Config managed rule accepts a remediation window.
+      ec2-managedinstance-patch-compliance-status-check reports SSM's own
+      compliance verdict, which is computed against the SSM patch baseline's
+      schedule and not against this value. Binding it to that rule would make an
+      unenforced organizational deadline look like a control that passed. It is
+      carried here so the value appears in evidence and is visibly not enforced.

@@ -303,6 +303,16 @@ def render_pack(catalog: dict, rules_doc: dict, resolved: dict[str, Resolved],
                     f"odp/catalog.yaml does not declare."
                 )
             odp = odps[key]
+            # An evidence-only ODP is one no managed rule can enforce. Binding it
+            # to a rule parameter would make an unenforceable value look enforced,
+            # which is the single thing this catalog most exists to prevent.
+            if odp.get("evidence_only"):
+                raise GenerationError(
+                    f"rule {rule_name}.{param} binds ODP {key}, which is declared "
+                    f"`evidence_only`. An evidence-only ODP has no rule that can "
+                    f"enforce it; binding it to a parameter would make an "
+                    f"unenforceable value look like a control."
+                )
             r = resolved[key]
 
             # Some managed rules take a list as N discrete numbered parameters
@@ -524,7 +534,8 @@ TRACE_COLUMNS = ["pack", "rule", "control", "ksi", "coverage", "odp",
 def emit(out_dir: Path, slug: str, template: dict, body: bytes, trace: list[dict],
          resolved: dict[str, Resolved], rules_doc: dict, baseline: str,
          notes: list[str], emit_oscal: bool, snap=None,
-         excluded: list[dict] | None = None) -> list[Path]:
+         excluded: list[dict] | None = None,
+         catalog_odps: dict | None = None) -> list[Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
     written = []
 
@@ -544,6 +555,16 @@ def emit(out_dir: Path, slug: str, template: dict, body: bytes, trace: list[dict
         "pack": slug, "baseline": baseline, "region_scope": rules_doc.get("region_scope"),
         "fedramp_snapshot": {"version": getattr(snap, "version", "unknown"),
                              "last_updated": getattr(snap, "last_updated", "unknown")},
+        # Declared, valued, and NOT ENFORCED BY ANY RULE. Present so the value is
+        # visible in evidence rather than silently absent -- and named as
+        # unenforced so it is never read as a control that passed.
+        "evidence_only_odps": [
+            {"odp": k, "control": normalize_control_id(o["control"]),
+             "oscal_param_id": o["oscal_param_id"],
+             "value": resolved[k].value, "assigned_by": resolved[k].assigned_by,
+             "why_unenforced": o.get("evidence_only")}
+            for k, o in sorted((catalog_odps or {}).items()) if o.get("evidence_only")
+        ],
         "rules": [
             {
                 "rule": name,
@@ -607,6 +628,15 @@ def emit(out_dir: Path, slug: str, template: dict, body: bytes, trace: list[dict
            "| Rule | Controls | Reason |\n|---|---|---|\n"
            + "".join(f"| `{e['rule']}` | {', '.join(e['controls'])} | {e['detail']} |\n"
                      for e in excluded) + "\n" if excluded else "")
+        + ("\n## Declared but NOT ENFORCED\n\nThese organization-defined parameters have "
+           "a value and appear in the evidence tags, and **no rule in this pack enforces "
+           "them**. No managed rule exposes the knob. They are listed so the value is "
+           "visible rather than silently absent — never as a control that passed.\n\n"
+           "| ODP | Control | Why unenforced |\n|---|---|---|\n"
+           + "".join(f"| `{k}` | {normalize_control_id(o['control'])} | "
+                     f"{' '.join(str(o['evidence_only']).split())} |\n"
+                     for k, o in sorted((catalog_odps or {}).items()) if o.get("evidence_only"))
+           + "\n" if any(o.get("evidence_only") for o in (catalog_odps or {}).values()) else "")
         + ("\n## Not verifiable against AWS's published pack\n\nThese rules are "
            "real, but absent from AWS's own NIST 800-53 Rev 5 conformance pack, so "
            "their identifier and parameter names could not be checked against a "
@@ -772,7 +802,8 @@ def main() -> int:
 
             slug = rules_doc["pack_slug"]
             written = emit(args.out, slug, template, body, trace, resolved,
-                           rules_doc, baseline, notes, args.emit_oscal, snap, excluded)
+                           rules_doc, baseline, notes, args.emit_oscal, snap, excluded,
+                           catalog.get('odps'))
 
             n_rules = len(rules_doc["rules"])
             rendered = sum(1 for r in template["Resources"].values()
