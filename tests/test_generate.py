@@ -857,3 +857,149 @@ def test_claimed_controls_actually_reached_the_catalogs():
             continue
         for rule in v["rules"]:
             assert ctrl in built[rule], f"{rule} does not claim {ctrl}"
+
+
+# --- Phase 4: deployment inputs and the recorder preflight -------------------
+
+import importlib.util as _ilu
+
+
+def _load(mod: str):
+    spec = _ilu.spec_from_file_location(mod, ROOT / f"tools/{mod}.py")
+    m = _ilu.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+
+
+GOOD_INPUTS = {
+    "packs": ["IAM", "NET"], "accounts": ["123456789012"],
+    "regions": ["us-east-1", "us-west-2"], "global_resource_region": "us-east-1",
+    "mode": "single-account", "excluded_accounts": [],
+    "delivery": {"pack_bucket": "b", "evidence_bucket": "e", "evidence_prefix": ""},
+    "overlay": "overlays/vanilla.yaml", "baseline": "moderate",
+    "safety": {"require_recorder_preflight": True, "delete_removed_packs": False},
+}
+
+
+def test_inputs_template_does_not_validate():
+    """It is a TEMPLATE. If it validated as-is, someone would deploy it, and
+    every environment value in it is deliberately empty."""
+    v = _load("validate_inputs")
+    tmpl = yaml.safe_load((ROOT / "inputs.template.yml").read_text())
+    assert v.validate(tmpl), "the template must not be deployable"
+
+
+def test_good_inputs_validate():
+    assert _load("validate_inputs").validate(copy.deepcopy(GOOD_INPUTS)) == []
+
+
+@pytest.mark.parametrize("name,mutate,expect", [
+    ("iam without global region", lambda c: c.update(global_resource_region=""), "global_resource_region"),
+    ("global region not targeted", lambda c: c.update(global_resource_region="eu-west-1"), "not in `regions`"),
+    ("malformed account", lambda c: c.update(accounts=["12345"]), "12-digit account id"),
+    ("ou id in single-account", lambda c: c.update(accounts=["ou-abcd-12345678"]), "12-digit account id"),
+    ("account id in org mode", lambda c: c.update(mode="organization"), "organizational unit id"),
+    ("bogus region", lambda c: c.update(regions=["narnia"]), "reports a CLEAN result"),
+    ("unknown pack", lambda c: c.update(packs=["QUANTUM"]), "not a built pack"),
+    ("baseline mismatch", lambda c: c.update(baseline="low"), "render smaller than intended"),
+    ("no evidence bucket", lambda c: c["delivery"].update(evidence_bucket=""), "no safe default"),
+    ("preflight disabled", lambda c: c["safety"].update(require_recorder_preflight=False), "reads as 'not failing'"),
+    ("overlay missing", lambda c: c.update(overlay="overlays/nope.yaml"), "does not exist"),
+])
+def test_inputs_validator_refusals(name, mutate, expect):
+    c = copy.deepcopy(GOOD_INPUTS)
+    mutate(c)
+    errs = _load("validate_inputs").validate(c)
+    assert errs, name
+    assert any(expect in e for e in errs), f"{name}: {errs}"
+
+
+def test_preflight_derives_required_resource_types_from_the_catalogs():
+    p = _load("preflight")
+    want = p.required_resource_types(["IAM", "NET"])
+    assert set(want) == {"IAM", "NET"}
+    assert "AWS::EC2::SecurityGroup" in want["NET"]
+    # The account pseudo-type is not a recorded resource and must never be asserted.
+    assert not any("AWS::::Account" in t for t in want.values())
+
+
+def test_preflight_refuses_when_the_recorder_is_absent(monkeypatch):
+    """The failure the epic calls the silent killer: rules deployed onto a
+    recorder that captures nothing report INSUFFICIENT_DATA, which reads as
+    'not failing'."""
+    p = _load("preflight")
+    monkeypatch.setattr(p, "_aws", lambda *a, **k: {"ConfigurationRecorders": []})
+    problems = p.check_region("us-east-1", {"AWS::EC2::Instance"}, None, False)
+    assert problems and "no AWS Config recorder" in problems[0]
+
+
+def test_preflight_refuses_a_recorder_that_is_not_recording(monkeypatch):
+    p = _load("preflight")
+    def fake(args, region, profile):
+        if args[1] == "describe-configuration-recorders":
+            return {"ConfigurationRecorders": [{"recordingGroup": {"allSupported": True}}]}
+        if args[1] == "describe-configuration-recorder-status":
+            return {"ConfigurationRecordersStatus": [{"recording": False}]}
+        return {"DeliveryChannels": [{"name": "default"}]}
+    monkeypatch.setattr(p, "_aws", fake)
+    problems = p.check_region("us-east-1", set(), None, False)
+    assert any("NOT RECORDING" in x for x in problems)
+
+
+def test_preflight_refuses_a_missing_resource_type(monkeypatch):
+    p = _load("preflight")
+    def fake(args, region, profile):
+        if args[1] == "describe-configuration-recorders":
+            return {"ConfigurationRecorders": [{"recordingGroup": {
+                "allSupported": False, "resourceTypes": ["AWS::S3::Bucket"]}}]}
+        if args[1] == "describe-configuration-recorder-status":
+            return {"ConfigurationRecordersStatus": [{"recording": True}]}
+        return {"DeliveryChannels": [{"name": "default"}]}
+    monkeypatch.setattr(p, "_aws", fake)
+    problems = p.check_region("us-east-1", {"AWS::EC2::Instance"}, None, False)
+    assert any("does not capture" in x for x in problems)
+
+
+def test_preflight_refuses_an_excluded_resource_type(monkeypatch):
+    """sparc-iac's own recorder uses EXCLUSION_BY_RESOURCE_TYPES, so this is the
+    shape a real estate hits, not a hypothetical."""
+    p = _load("preflight")
+    def fake(args, region, profile):
+        if args[1] == "describe-configuration-recorders":
+            return {"ConfigurationRecorders": [{"recordingGroup": {
+                "allSupported": False,
+                "recordingStrategy": {"useOnly": "EXCLUSION_BY_RESOURCE_TYPES"},
+                "exclusionByResourceTypes": {"resourceTypes": ["AWS::EC2::Instance"]}}}]}
+        if args[1] == "describe-configuration-recorder-status":
+            return {"ConfigurationRecordersStatus": [{"recording": True}]}
+        return {"DeliveryChannels": [{"name": "default"}]}
+    monkeypatch.setattr(p, "_aws", fake)
+    problems = p.check_region("us-east-1", {"AWS::EC2::Instance"}, None, False)
+    assert any("EXCLUDES" in x for x in problems)
+
+
+def test_preflight_refuses_global_resources_recorded_in_the_wrong_place(monkeypatch):
+    p = _load("preflight")
+    def fake(args, region, profile):
+        if args[1] == "describe-configuration-recorders":
+            return {"ConfigurationRecorders": [{"recordingGroup": {
+                "allSupported": False, "resourceTypes": [],
+                "includeGlobalResourceTypes": False}}]}
+        if args[1] == "describe-configuration-recorder-status":
+            return {"ConfigurationRecordersStatus": [{"recording": True}]}
+        return {"DeliveryChannels": [{"name": "default"}]}
+    monkeypatch.setattr(p, "_aws", fake)
+    problems = p.check_region("us-east-1", set(), None, expect_global=True)
+    assert any("global resource types" in x for x in problems)
+
+
+def test_preflight_passes_a_correctly_configured_region(monkeypatch):
+    p = _load("preflight")
+    def fake(args, region, profile):
+        if args[1] == "describe-configuration-recorders":
+            return {"ConfigurationRecorders": [{"recordingGroup": {"allSupported": True}}]}
+        if args[1] == "describe-configuration-recorder-status":
+            return {"ConfigurationRecordersStatus": [{"recording": True}]}
+        return {"DeliveryChannels": [{"name": "default"}]}
+    monkeypatch.setattr(p, "_aws", fake)
+    assert p.check_region("us-east-1", {"AWS::EC2::Instance"}, None, True) == []

@@ -1,0 +1,16 @@
+# Non-secret CI/CD configuration for GitLab.
+#
+# ##########################################################################
+# #  NEVER PUT A SECRET IN HERE. This file is committed, so a token written #
+# #  to it is a token published to everyone who can clone the repository.   #
+# ##########################################################################
+#
+# Secrets go in Settings -> CI/CD -> Variables, MASKED and PROTECTED:
+#
+#   AWS_ROLE_ARN   Role the deploy assumes via OIDC. REQUIRED to deploy.
+#   AWS_REGION     Region the AWS CLI operates in. No default — a wrong Region
+#                  reads an empty account and reports a clean result.
+#
+# Copy .gitlab-variables-example.yml over this file to start again.
+
+variables: {}

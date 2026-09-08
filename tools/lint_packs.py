@@ -96,9 +96,10 @@ def check_yaml_parses(root: Path, rep: Report) -> None:
     bad = 0
     for f in files:
         try:
-            # A CloudFormation template's !Ref etc. are custom tags; parse with
-            # a loader that tolerates them rather than rejecting valid CFN.
-            yaml.safe_load(f.read_text())
+            # safe_load_all, not safe_load: a GitLab CI component file is a
+            # legitimate MULTI-DOCUMENT yaml (a `spec:` header, `---`, the body),
+            # and single-document parsing rejects a perfectly valid file.
+            list(yaml.safe_load_all(f.read_text()))
         except yaml.YAMLError as exc:
             if "could not determine a constructor" in str(exc):
                 continue  # CFN short-form tag, not a syntax error
@@ -593,6 +594,26 @@ def check_guard_policies(root: Path, rep: Report) -> None:
         rep.ok(f"Guard token substitution: {len(policies)} policy file(s), {n} token(s) bound")
 
 
+def check_readme_coverage(root: Path, rep: Report) -> None:
+    """README's coverage table must match the catalogs.
+
+    It is the first thing an adopting team reads to decide whether this is worth
+    running. A stale coverage claim is worse than none, so it is generated and
+    this check fails when it drifts.
+    """
+    readme = root / "README.md"
+    gen = root / "tools/coverage_report.py"
+    if not readme.exists() or not gen.exists():
+        rep.defer("README coverage table", "README.md or the generator is absent")
+        return
+    r = subprocess.run([sys.executable, str(gen), "--check"],
+                       capture_output=True, text=True, cwd=root)
+    if r.returncode != 0:
+        rep.fail(f"README coverage table is stale:\n{r.stdout}{r.stderr}".strip())
+    else:
+        rep.ok("README coverage table matches the catalogs")
+
+
 def check_parameter_bindings(root: Path, rep: Report) -> None:
     """Every rule parameter binds exactly one of `odp` or `literal`.
 
@@ -687,6 +708,7 @@ CHECKS = (
     check_rule_catalogs,
     check_guard_policies,
     check_parameter_bindings,
+    check_readme_coverage,
     check_generated_packs,
 )
 

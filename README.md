@@ -67,65 +67,127 @@ Generation fails rather than deploying a wrong threshold. Out-of-range values,
 undeclared ODP references, enum violations, port lists exceeding a rule's
 capacity, and unsubstituted Guard tokens all exit non-zero.
 
-## Loading a pack
-
-Templates over ~50 KB must be staged in S3; anything with more than a couple of
-inline Guard policies will cross that line.
-
-**Single account, one Region**
+## Deploying
 
 ```bash
-aws s3 cp out/Agency-800-53r5-IAM.yaml s3://$PACK_BUCKET/packs/
-
-aws configservice put-conformance-pack \
-  --conformance-pack-name agency-800-53r5-iam \
-  --template-s3-uri s3://$PACK_BUCKET/packs/Agency-800-53r5-IAM.yaml \
-  --delivery-s3-bucket $EVIDENCE_BUCKET
+cp inputs.template.yml inputs.yml     # then fill it in
+python3 tools/validate_inputs.py      # refuses a file that would deploy wrong
+python3 tools/preflight.py            # refuses a recorder that cannot evaluate
+python3 generate.py --overlay overlays/vanilla.yaml
+bash scripts/deploy-packs.sh
 ```
 
-**Across an organization** (management account or delegated administrator; an
-org can have up to three delegated admins):
+`inputs.yml` names the packs, accounts, Regions, buckets and overlay. **Nothing
+that identifies your environment has a default.** A defaulted Region reads an
+empty account and reports a clean result; a defaulted bucket files your evidence
+under somebody else's label. Both are worse than a failed pipeline, because both
+look like success.
 
-```bash
-aws configservice put-organization-conformance-pack \
-  --organization-conformance-pack-name agency-800-53r5-iam \
-  --template-s3-uri s3://$PACK_BUCKET/packs/Agency-800-53r5-IAM.yaml \
-  --delivery-s3-bucket $EVIDENCE_BUCKET \
-  --excluded-accounts $SANDBOX_ACCOUNT_IDS
-```
+Pipelines for both forges ship in the repo and are manual-only:
+`.github/workflows/deploy.yml` and `ci/gitlab/deploy.yml`. Neither holds a role
+or a credential — the OIDC token is minted as the caller, so a fork assumes
+*your* role and nothing here needs a trust entry.
 
-**Overriding an ODP at deploy time** without regenerating — only for ODPs bound
-to managed rules, which are hoisted to template parameters:
+### The recorder preflight, and why it is not a Config rule
 
-```bash
-aws configservice put-conformance-pack \
-  --conformance-pack-name agency-800-53r5-iam \
-  --template-s3-uri s3://$PACK_BUCKET/packs/Agency-800-53r5-IAM.yaml \
-  --delivery-s3-bucket $EVIDENCE_BUCKET \
-  --conformance-pack-input-parameters \
-      ParameterName=OdpIa0501PwdMinlen,ParameterValue=20
-```
+`tools/preflight.py` refuses to deploy when the AWS Config recorder is not
+capturing what the selected packs need.
 
-Updates use the same call — `put-conformance-pack` is create-or-update. Deleting
-a pack removes its rules and their evaluation history, so prefer updating in
-place when evidence continuity matters.
+It cannot be a Config rule. A rule about the recorder, evaluated by the recorder,
+is circular: if recording is off, the rule that would report that fact does not
+run. So the assertion is made from outside, before anything deploys.
 
-**Prerequisites, in order.** The recorder gates everything: a rule scoped to a
-resource type the recorder isn't capturing never evaluates, and reports
-`INSUFFICIENT_DATA` rather than failing.
+It asserts a recorder exists **and is recording**, captures the resource types
+the selected packs declare, records global resources in exactly one Region with
+the IAM pack pinned there, and has a delivery channel. It **refuses** rather than
+warns — a warning is read once and scrolled past, and the pack stays deployed
+either way.
 
-1. Config recorder enabled in every target Region, recording the resource types
-   each pack scopes to
+### Two AWS behaviours the deploy respects
+
+`put-conformance-pack` is **create-or-update**, so re-running updates in place
+and evaluation history survives.
+
+**Deleting a pack destroys its evaluation history.** Removing a pack from
+`inputs.yml` therefore does *not* delete it — the orphan is reported and left
+alone. Deletion is a deliberate manual act.
+
+Templates over 51,200 bytes are staged to S3 automatically; smaller ones deploy
+inline. The decision is made per pack from what actually rendered.
+
+### Prerequisites, in order
+
+1. Config recorder enabled and **recording** in every target Region
 2. Global resource recording enabled in exactly one Region (IAM lives there)
-3. Delivery channel and evidence bucket with the service-linked role's access
-4. `AWSServiceRoleForConfigConforms` present in member accounts for org packs
+3. Delivery channel and evidence bucket the service-linked role can write to
+4. `AWSServiceRoleForConfigConforms` in member accounts, for organization mode
+
+The preflight checks all four. It exists because a rule scoped to a resource type
+the recorder is not capturing never evaluates — it reports `INSUFFICIENT_DATA`,
+which most dashboards render as "not failing".
+
+## What you get out of the gate
+
+<!-- COVERAGE-TABLE:START -->
+
+**157 rules across 6 packs, touching 70 distinct NIST SP 800-53 Rev 5 controls over 54 AWS resource types.**
+
+What you get depends on what your boundary actually runs. This is keyed by
+resource type for that reason — find the rows you have.
+
+| If your boundary has | Rules | Controls touched | From packs |
+| --- | ---: | ---: | --- |
+| `AWS::::Account` | 10 | 24 | CRYPTO, IAM, LOG |
+| `AWS::S3::Bucket` | 11 | 18 | CRYPTO, LOG, NET, RPL |
+| `AWS::Redshift::Cluster` | 8 | 16 | CRYPTO, IAM, LOG, NET, RPL, VCM |
+| `AWS::EC2::Instance` | 10 | 12 | IAM, NET, VCM |
+| `AWS::IAM::User` | 10 | 11 | IAM |
+| `AWS::RDS::DBInstance` | 9 | 11 | CRYPTO, IAM, LOG, NET, RPL |
+| `AWS::ElasticLoadBalancingV2::LoadBalancer` | 5 | 11 | LOG, NET, RPL |
+| `AWS::CloudTrail::Trail` | 4 | 11 | LOG |
+| `AWS::EC2::VPC` | 2 | 9 | LOG, NET |
+| `AWS::OpenSearch::Domain` | 5 | 8 | CRYPTO, LOG, NET |
+| `AWS::EC2::Volume` | 4 | 8 | CRYPTO, NET, RPL, VCM |
+| `AWS::Elasticsearch::Domain` | 4 | 8 | CRYPTO, LOG, NET |
+| `AWS::ApiGateway::Stage` | 4 | 7 | CRYPTO, LOG, NET |
+| `AWS::DynamoDB::Table` | 5 | 6 | CRYPTO, RPL |
+| `AWS::ElasticLoadBalancing::LoadBalancer` | 3 | 6 | CRYPTO, NET, RPL |
+| `AWS::Lambda::Function` | 3 | 6 | NET, RPL, VCM |
+| `AWS::SecretsManager::Secret` | 5 | 5 | CRYPTO, IAM |
+| `AWS::Backup::RecoveryPoint` | 2 | 4 | RPL |
+| `AWS::ECR::Repository` | 2 | 4 | VCM |
+| `AWS::ECS::TaskDefinition` | 2 | 4 | VCM |
+| `AWS::Logs::LogGroup` | 2 | 4 | LOG |
+| `AWS::SageMaker::NotebookInstance` | 2 | 4 | CRYPTO, NET |
+| `AWS::CloudWatch::Alarm` | 1 | 4 | LOG |
+| `AWS::EC2::SecurityGroup` | 4 | 3 | NET |
+| `AWS::IAM::Policy` | 3 | 3 | IAM |
+| _…and 29 further resource types_ | | | |
+
+**Read the middle column carefully.** It counts distinct controls the rules
+for that resource type *crosswalk to* — not controls *satisfied*. Most of
+those crosswalks are `supporting`, and each pack's generated
+`coverage.md` says which are which and what each rule cannot see.
+
+**The column does not sum.** Controls overlap heavily between resource types;
+adding it up double-counts badly.
+
+**A rule with no in-scope resources reports `INSUFFICIENT_DATA`**, which most
+dashboards render as "not failing". Rows you do not have are not silently
+green — they are silently absent. The recorder preflight refuses to deploy a
+pack whose resource types are not being recorded, for exactly this reason.
+
+<!-- COVERAGE-TABLE:END -->
+
+Generated by `tools/coverage_report.py`; CI fails if it drifts from the
+catalogs, because a hand-maintained coverage claim is stale the day after it is
+written.
 
 ## Pack registry and estimated coverage
 
-Planning estimates, not measurements. Rule counts are what we expect to land
-after review; coverage is the share of *touched* controls expected to have at
-least one automated check. Controls-touched columns overlap between packs and do
-not sum to a baseline.
+**These were planning estimates and are now measurements.** All six packs are
+built. Rule counts below are what actually renders; the controls-touched columns
+still overlap between packs and still do not sum to a baseline.
 
 | Pack | Domain | 800-53r5 families | Controls touched (Mod) | Est. rules | Est. ODP params | 20x KSIs | Automated share |
 | --- | --- | --- | --- | --- | --- | --- | --- |
