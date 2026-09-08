@@ -36,6 +36,8 @@ REG_START = "<!-- PACK-REGISTRY:START -->"
 REG_END = "<!-- PACK-REGISTRY:END -->"
 SUM_START = "<!-- CONTROL-SUMMARY:START -->"
 SUM_END = "<!-- CONTROL-SUMMARY:END -->"
+RULES_DIR = "rules"
+RULE_GLOB = "*.yaml"
 NIST_INDEX = ROOT / "vendor" / "nist" / "nist-800-53r5-params.json"
 AWS_INDEX = ROOT / "vendor" / "aws" / "aws-managed-rule-index.json"
 
@@ -57,11 +59,23 @@ FAMILY_NAMES = {
 }
 
 
+def _rule_docs() -> list[dict]:
+    """Every domain rule catalog, parsed once, in a stable order.
+
+    Six call sites used to re-glob and re-parse `rules/*.yaml` independently.
+    Beyond the duplicated literal, that made it possible for two of them to
+    disagree about ordering, which is how a generated table acquires a diff
+    that is not a real change.
+    """
+    return [
+        yaml.safe_load(f.read_text()) for f in sorted((ROOT / RULES_DIR).glob(RULE_GLOB))
+    ]
+
+
 def collect() -> tuple[list[tuple], dict]:
     res = defaultdict(lambda: {"rules": set(), "controls": set(), "packs": set()})
     totals = {"rules": 0, "controls": set(), "packs": set()}
-    for f in sorted((ROOT / "rules").glob("*.yaml")):
-        doc = yaml.safe_load(f.read_text())
+    for doc in _rule_docs():
         totals["packs"].add(doc["domain"])
         for name, rule in doc["rules"].items():
             ctrls = set(rule["controls"].get("nist_800_53_r5", []))
@@ -121,8 +135,7 @@ def render_registry() -> str:
     any more; it is a wrong number in the front door.
     """
     rows = []
-    for f in sorted((ROOT / "rules").glob("*.yaml")):
-        doc = yaml.safe_load(f.read_text())
+    for doc in _rule_docs():
         rules = doc["rules"]
         controls, ksis, cov = set(), set(), {}
         params = 0
@@ -182,8 +195,8 @@ def _aws_reach() -> dict[str, int]:
     }
     ours = {
         r["identifier"]
-        for f in (ROOT / "rules").glob("*.yaml")
-        for r in yaml.safe_load(f.read_text())["rules"].values()
+        for doc in _rule_docs()
+        for r in doc["rules"].values()
         if r.get("source") == "managed"
     }
     return {
@@ -197,17 +210,13 @@ def _aws_reach() -> dict[str, int]:
 
 
 def _our_rule_total() -> int:
-    return sum(
-        len(yaml.safe_load(f.read_text())["rules"])
-        for f in (ROOT / "rules").glob("*.yaml")
-    )
+    return sum(len(doc["rules"]) for doc in _rule_docs())
 
 
 def _control_strength() -> dict[str, str]:
     """Map each touched control to the strongest coverage any rule claims for it."""
     best: dict[str, int] = {}
-    for f in sorted((ROOT / "rules").glob("*.yaml")):
-        doc = yaml.safe_load(f.read_text())
+    for doc in _rule_docs():
         for rule in doc["rules"].values():
             rank = STRENGTH.get(rule.get("coverage", "supporting"), 1)
             for c in rule["controls"].get("nist_800_53_r5", []):
@@ -263,8 +272,7 @@ def render_control_summary() -> str:
         "| --- | ---: | ---: | --- | --- |",
     ]
     pack_of: dict[str, set] = defaultdict(set)
-    for f in sorted((ROOT / "rules").glob("*.yaml")):
-        doc = yaml.safe_load(f.read_text())
+    for doc in _rule_docs():
         for rule in doc["rules"].values():
             for c in rule["controls"].get("nist_800_53_r5", []):
                 pack_of[c.split("-", 1)[0]].add(doc["domain"])

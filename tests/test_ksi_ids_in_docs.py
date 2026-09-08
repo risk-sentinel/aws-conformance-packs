@@ -54,8 +54,9 @@ def test_every_named_ksi_exists_in_the_snapshot(path):
 def test_the_rekey_ledger_is_exempt_but_still_id_checked():
     """The one exempted file must still only name ids that once or now exist."""
     ledger = ROOT / "docs" / "dev" / "ksi-rekey.md"
-    assert ledger.exists() and ledger in EXEMPT
-    assert ledger not in set(NARRATIVE)
+    assert ledger.exists(), "the re-key ledger is missing"
+    assert ledger in EXEMPT, "the ledger must be exempt from the retired-id scan"
+    assert ledger not in set(NARRATIVE), "an exempt file must not also be scanned"
     published = set(load().indicators)
     unknown = sorted(set(MNEMONIC.findall(ledger.read_text())) - published)
     assert not unknown, f"re-key ledger maps onto non-existent indicators: {unknown}"
