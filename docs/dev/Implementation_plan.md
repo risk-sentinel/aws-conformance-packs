@@ -8,19 +8,18 @@ per-organization ODP overlay. It is a *generator and a deployment pattern*, not 
 profile: there are no InSpec controls here. Evidence leaves this repo as Config
 rule evaluations, which `risk-sentinel/aws-config` converts to HDF.
 
-**Last updated:** 2026-09-08 (**LOG complete — four domains, 115 rules.** IAM 25, NET
-34, CRYPTO 31, LOG 25. LOG added `literal` parameter bindings, for values that are what
-a rule MEANS rather than something a tenant tailors (`alarmActionRequired=true`), kept
-distinct from ODPs so a fixed assertion never sits in the provenance column beside a
-real governance decision. Writing it surfaced a genuine bug: a rule whose parameters
-were **all** literals emitted **zero** traceability rows and vanished from the report,
-under-reporting the pack's own coverage — the fallback tested what was *declared*
-rather than what was *emitted*. Two corrections also landed: the recorder-prerequisite
-check must **not** be a Config rule (a rule about the recorder, evaluated by the
-recorder, is circular — if recording is off the rule reporting that does not run), and
-issue #5 listed the same CloudTrail rule under two names. The three vanilla overlays now
-carry all 20 ODPs rather than 7, since a reference a consumer copies must show every
-knob. Next: VCM, RPL.)
+**Last updated:** 2026-09-08 (**VCM complete — five domains, 132 rules.** IAM 25, NET
+34, CRYPTO 31, LOG 25, VCM 17. VCM added **evidence-only ODPs**: a value that is declared,
+carries provenance, appears in the evidence tags and coverage report, and which **no rule
+enforces** — because no managed rule accepts the knob. The SI-2 remediation window is the
+case: `ec2-managedinstance-patch-compliance-status-check` reports SSM's own verdict against
+its patch baseline's schedule, not an organizational deadline. Binding it would make an
+unenforced deadline look like a control that passed, so the generator now **refuses** that
+binding, and `evidence_only` must carry a reason rather than a bare flag. The domain also
+carries what the epic calls the worst false assurance in the programme: every
+`ec2-managedinstance-*` rule evaluates only SSM-registered instances, so an unregistered
+host is **absent** from results rather than non-compliant — the least-managed hosts are the
+ones missing from the evidence. Next: RPL, the last Config domain.)
 
 ---
 
@@ -110,7 +109,7 @@ checklist.
 |---|---|
 | Tracking issues | **9 filed** — #1 epic, #2–#8 domains, **#9 Phase 0** (active) |
 | Generator (`generate.py`) | **Built** (#13) — resolves, renders, validates, emits 5 artifacts. 22 tests |
-| ODP catalog (`odp/catalog.yaml`) | **20 ODPs** — every `oscal_param_id` now checked for existence against the vendored NIST index |
+| ODP catalog (`odp/catalog.yaml`) | **24 ODPs**, one evidence-only — every `oscal_param_id` now checked for existence against the vendored NIST index |
 | Rule catalogs (`rules/<domain>.yaml`) | **2 / 6** — `iam.yaml` (7 rules, partial; #2 open) and `net.yaml` (18 rules, #3). 25 rules total |
 | Guard policies (`guard/`) | **2** — KMS rotation period and the ELB TLS floor. Values bake at generation time |
 | Overlays (`overlays/`) | **3** — `vanilla.yaml` (moderate), `vanilla-low.yaml`, `vanilla-high.yaml`. All three generate; Low records 2 exclusions |
@@ -451,7 +450,7 @@ table.
 | [#3](https://github.com/risk-sentinel/aws-conformance-packs/issues/3) | **NET** | **18 built** | 4 | **DONE.** Port-list capacity proved the `list` type and the slot cap. Domain caveat: Config evaluates boundary components as objects, not reachability |
 | [#4](https://github.com/risk-sentinel/aws-conformance-packs/issues/4) | **CRYPTO** | **31 built** | 4 | **DONE.** First Guard-heavy pack. KMS rotation period and min-TLS have no managed-rule parameter, so this is where `CUSTOM_POLICY` token substitution and the S3-hosted-template threshold get proven |
 | [#5](https://github.com/risk-sentinel/aws-conformance-packs/issues/5) | **LOG** | **25 built** | 4 | **DONE.**  Largest rule count and where Config cost explodes — model the bill before org rollout |
-| [#6](https://github.com/risk-sentinel/aws-conformance-packs/issues/6) | **VCM** | 25–35 | 3 | First `evidence_only_odps` user |
+| [#6](https://github.com/risk-sentinel/aws-conformance-packs/issues/6) | **VCM** | **17 built** | 4 | **DONE.** First `evidence_only_odps` user |
 | [#7](https://github.com/risk-sentinel/aws-conformance-packs/issues/7) | **RPL** | 12–18 | 3 | Smallest; the `*-in-backup-plan` coverage trap is the lesson |
 
 **Cross-cutting per pack (from epic #1, non-negotiable):**

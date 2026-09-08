@@ -62,6 +62,18 @@ parameters:
   - param_id: audit_log_retention_days
     value: 365
 
+  # --- cm-2 -> cm-02_odp.01 (frequency) ---
+  - param_id: stopped_instance_allowed_days
+    value: 30
+
+  # --- cm-2 -> cm-02_odp.02 (circumstances) ---
+  - param_id: approved_ami_tag_pairs
+    value: []
+
+  # --- cm-7 -> cm-07_odp.01 (mission-essential capabilities) ---
+  - param_id: approved_lambda_runtimes
+    value: []
+
   # --- ia-5 -> ia-05_odp.01 (time period by authenticator type) ---
   - param_id: access_key_maximum_age_days
     value: 90
@@ -107,6 +119,12 @@ parameters:
     value:
     - ELBSecurityPolicy-TLS13-1-2-2021-06
     - ELBSecurityPolicy-TLS-1-2-Ext-2018-06
+
+  # --- si-2 -> si-02_odp (time period) ---
+  # EVIDENCE ONLY — no managed rule can enforce this. The value appears in
+  # the evidence tags and in the coverage report, explicitly as unenforced.
+  - param_id: critical_patch_window_days
+    value: 30
 
   # --- si-4 -> si-04_odp.06 (frequency) ---
   - param_id: finding_age_high_days

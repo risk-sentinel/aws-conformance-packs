@@ -1,0 +1,303 @@
+# Rule catalog — Vulnerability & Configuration Management (VCM).
+#
+# ---------------------------------------------------------------------------
+# THE WORST FALSE ASSURANCE IN THE PROGRAMME LIVES HERE
+# ---------------------------------------------------------------------------
+# Every ec2-managedinstance-* rule evaluates only instances registered with AWS
+# Systems Manager. An instance that never registered is not non-compliant --
+# it is ABSENT from the results entirely.
+#
+# So the least-managed hosts, which are exactly the ones most likely to be
+# unpatched, are the ones missing from the evidence. A pack reporting 100% patch
+# compliance may be reporting on a subset that excludes every host that matters.
+#
+# ec2-instance-managed-by-systems-manager is carried specifically to make that
+# gap visible. Any difference between instance count and managed-instance count
+# is a finding in its own right.
+
+version: 1
+domain: VCM
+pack_slug: 800-53r5-VCM
+region_scope: regional
+
+domain_caveat: >-
+  Patch and association compliance rules here evaluate only SSM-managed
+  instances. An unregistered instance is ABSENT from the results, not
+  non-compliant, so the least-managed hosts are the ones missing from the
+  evidence. Read any patch-compliance figure from this pack alongside the gap
+  between total instance count and managed-instance count; on its own it is a
+  percentage of an unstated denominator. Separately, the SI-2 remediation window
+  cannot be enforced by any managed rule and is declared evidence-only.
+
+not_modeled:
+  KSI-CMT-RVP: >-
+    Reviewing Change Procedures is process, not configuration. CloudTrail
+    evidences that changes happened, never that they were authorized or reviewed.
+    That belongs to the GOV producer.
+  KSI-CMT-VTD: >-
+    Partially modeled only. Validating Throughout Deployment asks for automated
+    testing before deployment, which is a pipeline property — evidence belongs in
+    the CI/CD producer, not in resource configuration. The patch and managed-update
+    rules here touch si-2 but say nothing about pre-deployment validation.
+
+required_resource_types:
+  - AWS::EC2::Instance
+  - AWS::SSM::PatchCompliance
+  - AWS::SSM::AssociationCompliance
+  - AWS::ECR::Repository
+  - AWS::Lambda::Function
+
+rules:
+
+  ec2-instance-managed-by-systems-manager:
+    source: managed
+    identifier: EC2_INSTANCE_MANAGED_BY_SSM
+    description: >-
+      EC2 instances are managed by AWS Systems Manager.
+    resource_types: [AWS::EC2::Instance]
+    controls:
+      nist_800_53_r5: [cm-2, cm-8]
+      ksi: [KSI-SVC-ACM, KSI-PIY-GIV]
+    coverage: full
+    coverage_note: >-
+      THE MOST IMPORTANT RULE IN THIS PACK, and not because of what it asserts. Every
+      ec2-managedinstance-* rule evaluates only SSM-MANAGED instances, so an instance
+      that never registered is ABSENT from those results rather than non-compliant. This
+      rule is what makes that gap visible. Treat any difference between instance count
+      and managed-instance count as a finding in its own right.
+  ec2-managedinstance-patch-compliance-status-check:
+    source: managed
+    identifier: EC2_MANAGEDINSTANCE_PATCH_COMPLIANCE_STATUS_CHECK
+    description: >-
+      Managed instances report compliant against their SSM patch baseline.
+    resource_types: [AWS::SSM::PatchCompliance]
+    controls:
+      nist_800_53_r5: [si-2, cm-6]
+      ksi: [KSI-CMT-VTD, KSI-SVC-ACM]
+    coverage: partial
+    coverage_note: >-
+      Reports SSM's OWN compliance verdict, computed against the patch baseline's
+      schedule -- not against any organization-defined remediation window. The
+      critical_patch_window_days ODP is declared evidence-only for exactly this reason.
+      Unmanaged instances are absent, not failing.
+  ec2-managedinstance-association-compliance-status-check:
+    source: managed
+    identifier: EC2_MANAGEDINSTANCE_ASSOCIATION_COMPLIANCE_STATUS_CHECK
+    description: >-
+      Managed instances report compliant against their SSM associations.
+    resource_types: [AWS::SSM::AssociationCompliance]
+    controls:
+      nist_800_53_r5: [cm-6, cm-2]
+      ksi: [KSI-SVC-ACM, KSI-MLA-EVC]
+    coverage: partial
+    coverage_note: >-
+      Same scope limit: unmanaged instances are absent from the results rather than
+      non-compliant.
+  ec2-imdsv2-check:
+    source: managed
+    identifier: EC2_IMDSV2_CHECK
+    description: >-
+      EC2 instances require IMDSv2 for instance metadata access.
+    resource_types: [AWS::EC2::Instance]
+    controls:
+      nist_800_53_r5: [cm-6, cm-7]
+      ksi: [KSI-SVC-ACM, KSI-IAM-JIT]
+    coverage: full
+    coverage_note: >-
+      IMDSv1 is the path by which an SSRF becomes credential theft, so this is a
+      hardening control with unusually direct consequence.
+  ec2-stopped-instance:
+    source: managed
+    identifier: EC2_STOPPED_INSTANCE
+    description: >-
+      EC2 instances are not stopped for longer than the organization-defined period.
+    resource_types: [AWS::EC2::Instance]
+    controls:
+      nist_800_53_r5: [cm-2]
+      ksi: [KSI-SVC-ACM]
+    coverage: supporting
+    coverage_note: >-
+      Inventory hygiene. A long-stopped instance is unpatched and still attached to
+      storage; this is not a security control in its own right.
+    parameters:
+      AllowedDays: { odp: stopped_instance_allowed_days }
+  ec2-volume-inuse-check:
+    source: managed
+    identifier: EC2_VOLUME_INUSE_CHECK
+    description: >-
+      EBS volumes are attached to an instance.
+    resource_types: [AWS::EC2::Volume]
+    controls:
+      nist_800_53_r5: [cm-8, cm-2]
+      ksi: [KSI-PIY-GIV, KSI-SVC-ACM]
+    coverage: supporting
+    coverage_note: >-
+      Inventory hygiene. Note the interaction with the CRYPTO pack: encrypted-volumes
+      evaluates ATTACHED volumes only, so an unattached volume is invisible to that rule
+      and this one flags it.
+  ebs-optimized-instance:
+    source: managed
+    identifier: EBS_OPTIMIZED_INSTANCE
+    description: >-
+      EC2 instances are EBS-optimized.
+    resource_types: [AWS::EC2::Instance]
+    controls:
+      nist_800_53_r5: [cm-6]
+      ksi: [KSI-SVC-ACM]
+    coverage: supporting
+    coverage_note: >-
+      THE WEAKEST SECURITY CASE IN THIS PACK. EBS optimization is a performance setting;
+      AWS maps it under availability. Carried as a configuration-baseline item so the
+      assignment is visible and reviewable rather than silently dropped -- see
+      docs/dev/rule-reconciliation.yaml.
+  ecs-containers-readonly-access:
+    source: managed
+    identifier: ECS_CONTAINERS_READONLY_ACCESS
+    description: >-
+      ECS task definitions give containers read-only root filesystems.
+    resource_types: [AWS::ECS::TaskDefinition]
+    controls:
+      nist_800_53_r5: [cm-6, cm-7]
+      ksi: [KSI-SVC-ACM, KSI-CMT-RMV]
+    coverage: full
+    coverage_note: >-
+      A read-only root filesystem is the strongest single expression of
+      redeploy-rather-than-modify that Config can actually observe.
+  ecs-task-definition-user-for-host-mode-check:
+    source: managed
+    identifier: ECS_TASK_DEFINITION_USER_FOR_HOST_MODE_CHECK
+    description: >-
+      ECS host-mode task definitions do not run privileged or as root.
+    resource_types: [AWS::ECS::TaskDefinition]
+    controls:
+      nist_800_53_r5: [cm-6, cm-7]
+      ksi: [KSI-SVC-ACM, KSI-IAM-JIT]
+    coverage: full
+    coverage_note: >-
+      Applies only to task definitions using host network mode. Tasks in awsvpc mode are
+      out of scope for this rule, which is most Fargate workloads.
+  elastic-beanstalk-managed-updates-enabled:
+    source: managed
+    identifier: ELASTIC_BEANSTALK_MANAGED_UPDATES_ENABLED
+    description: >-
+      Beanstalk environments have managed platform updates enabled.
+    resource_types: [AWS::ElasticBeanstalk::Environment]
+    controls:
+      nist_800_53_r5: [si-2, cm-6]
+      ksi: [KSI-CMT-VTD, KSI-SVC-ACM]
+    coverage: full
+  redshift-cluster-maintenancesettings-check:
+    source: managed
+    identifier: REDSHIFT_CLUSTER_MAINTENANCESETTINGS_CHECK
+    description: >-
+      Redshift clusters allow automatic version upgrades.
+    resource_types: [AWS::Redshift::Cluster]
+    controls:
+      nist_800_53_r5: [si-2, cm-6]
+      ksi: [KSI-CMT-VTD, KSI-SVC-ACM]
+    coverage: full
+    parameters:
+      allowVersionUpgrade: { literal: 'true' }
+  approved-amis-by-tag:
+    source: managed
+    identifier: APPROVED_AMIS_BY_TAG
+    not_in_aws_pack: >-
+      Real managed rule, absent from AWS's NIST r5 pack. Identifier and the
+      amisByTagKeyAndValue parameter are UNVERIFIED against a published AWS artifact --
+      and this rule carries an ODP, so a wrong parameter name means the AMI allow-list
+      silently does not apply.
+    description: >-
+      EC2 instances run an AMI carrying an approved tag.
+    resource_types: [AWS::EC2::Instance]
+    controls:
+      nist_800_53_r5: [cm-2]
+      ksi: [KSI-CNA-IBP, KSI-SVC-ACM]
+    coverage: partial
+    coverage_note: >-
+      Tag-based rather than id-based DELIBERATELY: an AMI id list goes stale on every
+      image build and becomes a maintenance treadmill people widen until it means
+      nothing. With an empty tag list this rule constrains nothing, so populate it
+      before reading a PASS as a baseline claim.
+    parameters:
+      amisByTagKeyAndValue: { odp: approved_ami_tag_pairs }
+  approved-amis-by-id:
+    source: managed
+    identifier: APPROVED_AMIS_BY_ID
+    not_in_aws_pack: >-
+      Real managed rule, absent from AWS's NIST r5 pack. Identifier UNVERIFIED.
+    description: >-
+      EC2 instances run an AMI on the approved id list.
+    resource_types: [AWS::EC2::Instance]
+    controls:
+      nist_800_53_r5: [cm-2]
+      ksi: [KSI-CNA-IBP, KSI-SVC-ACM]
+    coverage: supporting
+    coverage_note: >-
+      Carried for completeness; approved-amis-by-tag is the variant to prefer. An id
+      list goes stale on every image build. Intentionally left unbound to an ODP so it
+      is inert rather than half-configured.
+  ec2-instance-detailed-monitoring-enabled:
+    source: managed
+    identifier: EC2_INSTANCE_DETAILED_MONITORING_ENABLED
+    not_in_aws_pack: >-
+      Real managed rule, absent from AWS's NIST r5 pack. Identifier UNVERIFIED.
+    description: >-
+      EC2 instances have detailed monitoring enabled.
+    resource_types: [AWS::EC2::Instance]
+    controls:
+      nist_800_53_r5: [cm-6]
+      ksi: [KSI-SVC-ACM]
+    coverage: supporting
+    coverage_note: >-
+      Monitoring granularity, not a security configuration.
+  ecr-private-image-scanning-enabled:
+    source: managed
+    identifier: ECR_PRIVATE_IMAGE_SCANNING_ENABLED
+    not_in_aws_pack: >-
+      Real managed rule, absent from AWS's NIST r5 pack. Identifier UNVERIFIED.
+    description: >-
+      Private ECR repositories have image scanning enabled.
+    resource_types: [AWS::ECR::Repository]
+    controls:
+      nist_800_53_r5: [ra-5, si-2]
+      ksi: [KSI-SCR-MON, KSI-CMT-VTD]
+    coverage: partial
+    coverage_note: >-
+      Scanning being ENABLED, never that findings are triaged or that the scan is
+      authenticated. RA-5's authenticated-scanning expectation is Inspector's job, and
+      Inspector findings are not Config rule results -- route those through Security Hub
+      to HDF rather than forcing a Config rule.
+  ecr-private-tag-immutability-enabled:
+    source: managed
+    identifier: ECR_PRIVATE_TAG_IMMUTABILITY_ENABLED
+    not_in_aws_pack: >-
+      Real managed rule, absent from AWS's NIST r5 pack. Identifier UNVERIFIED.
+    description: >-
+      Private ECR repositories enforce tag immutability.
+    resource_types: [AWS::ECR::Repository]
+    controls:
+      nist_800_53_r5: [cm-2, cm-6]
+      ksi: [KSI-CMT-RMV, KSI-SVC-ACM]
+    coverage: full
+    coverage_note: >-
+      Tag immutability is what makes an image reference reproducible, so this is real
+      redeploy-rather-than-modify evidence.
+  lambda-function-settings-check:
+    source: managed
+    identifier: LAMBDA_FUNCTION_SETTINGS_CHECK
+    not_in_aws_pack: >-
+      Real managed rule, absent from AWS's NIST r5 pack. Identifier and the runtime
+      parameter are UNVERIFIED -- and it carries an ODP, so a wrong parameter name means
+      the runtime allow-list silently does not apply.
+    description: >-
+      Lambda functions use an approved runtime.
+    resource_types: [AWS::Lambda::Function]
+    controls:
+      nist_800_53_r5: [cm-7]
+      ksi: [KSI-IAM-JIT, KSI-CMT-RMV]
+    coverage: partial
+    coverage_note: >-
+      With an empty runtime allow-list this constrains nothing. An out-of-date list is
+      how an end-of-life runtime stays in production while the pack reports compliant.
+    parameters:
+      runtime: { odp: approved_lambda_runtimes }
