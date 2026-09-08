@@ -1,0 +1,376 @@
+# Rule catalog — Logging, Monitoring & Audit (LOG).
+#
+# ---------------------------------------------------------------------------
+# THIS IS THE EXPENSIVE PACK
+# ---------------------------------------------------------------------------
+# AWS Config bills per rule evaluation and per configuration item, and log groups
+# and buckets churn more than any other resource type here. cloudtrail S3 data
+# events multiply CloudTrail cost independently. Model the bill on ONE account
+# before an organization rollout -- this is the pack where that matters.
+#
+# ---------------------------------------------------------------------------
+# THE RECORDER CANNOT CHECK ITSELF
+# ---------------------------------------------------------------------------
+# A rule about the AWS Config recorder, evaluated by AWS Config, is circular: if
+# recording is off, the rule that would report that fact does not run. So the
+# recorder-prerequisite assertion is deliberately NOT a rule in this pack. It
+# belongs out of band -- a CLI check in the deploying pipeline.
+
+version: 1
+domain: LOG
+pack_slug: 800-53r5-LOG
+region_scope: regional
+
+domain_caveat: >-
+  Almost every rule here evidences that logging is CONFIGURED, not that logs are
+  retained usefully, reviewed, or acted upon. That gap is the weakest link in this
+  domain's 20x crosswalk: KSI-MLA-RVL asks for log review, and a retention setting
+  is not review. The review activity is a process artifact belonging to the GOV
+  producer. Config also bills per evaluation and per configuration item, and log
+  groups and buckets churn -- model cost on one account before rolling out
+  organization-wide.
+
+not_modeled:
+  KSI-MLA-ALA: >-
+    Authorizing Log Access concerns who may read audit records. AWS Config sees
+    that a log destination exists, not the identity policy governing reads of it.
+    That is IAM-pack and policy-artifact territory.
+
+required_resource_types:
+  - AWS::CloudTrail::Trail
+  - AWS::Logs::LogGroup
+  - AWS::S3::Bucket
+  - AWS::CloudWatch::Alarm
+
+rules:
+
+  cloudtrail-enabled:
+    source: managed
+    identifier: CLOUD_TRAIL_ENABLED
+    description: >-
+      CloudTrail is enabled in the account.
+    resource_types: [AWS::::Account]
+    controls:
+      nist_800_53_r5: [au-2, au-12]
+      ksi: [KSI-MLA-LET, KSI-CMT-LMC]
+    coverage: full
+    coverage_note: >-
+      ACCOUNT-LEVEL PERIODIC. Produces one result per account rather than per trail,
+      which distorts per-resource compliance percentages in aggregated views.
+  multi-region-cloudtrail-enabled:
+    source: managed
+    identifier: MULTI_REGION_CLOUD_TRAIL_ENABLED
+    description: >-
+      A multi-Region CloudTrail trail is enabled.
+    resource_types: [AWS::::Account]
+    controls:
+      nist_800_53_r5: [au-2, au-12]
+      ksi: [KSI-MLA-LET]
+    coverage: full
+    coverage_note: >-
+      Account-level periodic, same aggregation caveat.
+  cloud-trail-cloud-watch-logs-enabled:
+    source: managed
+    identifier: CLOUD_TRAIL_CLOUD_WATCH_LOGS_ENABLED
+    description: >-
+      CloudTrail trails deliver to CloudWatch Logs.
+    resource_types: [AWS::CloudTrail::Trail]
+    controls:
+      nist_800_53_r5: [au-6, au-12]
+      ksi: [KSI-MLA-RVL, KSI-MLA-LET]
+    coverage: supporting
+    coverage_note: >-
+      Delivery to a queryable destination is a precondition for review, not review
+      itself.
+  cloud-trail-encryption-enabled:
+    source: managed
+    identifier: CLOUD_TRAIL_ENCRYPTION_ENABLED
+    description: >-
+      CloudTrail logs are encrypted with a KMS key.
+    resource_types: [AWS::CloudTrail::Trail]
+    controls:
+      nist_800_53_r5: [au-9]
+      ksi: [KSI-MLA-OSM]
+    coverage: full
+  cloud-trail-log-file-validation-enabled:
+    source: managed
+    identifier: CLOUD_TRAIL_LOG_FILE_VALIDATION_ENABLED
+    description: >-
+      CloudTrail log file integrity validation is enabled.
+    resource_types: [AWS::CloudTrail::Trail]
+    controls:
+      nist_800_53_r5: [au-9]
+      ksi: [KSI-MLA-OSM]
+    coverage: full
+    coverage_note: >-
+      Integrity validation makes tampering DETECTABLE after the fact; it does not
+      prevent it.
+  cloudtrail-s3-dataevents-enabled:
+    source: managed
+    identifier: CLOUDTRAIL_S3_DATAEVENTS_ENABLED
+    description: >-
+      CloudTrail captures S3 object-level data events.
+    resource_types: [AWS::CloudTrail::Trail]
+    controls:
+      nist_800_53_r5: [au-2, au-12]
+      ksi: [KSI-MLA-LET]
+    coverage: partial
+    coverage_note: >-
+      Data events are the expensive ones. Enabling them across all buckets multiplies
+      CloudTrail cost sharply -- see the cost note in this pack's coverage report.
+  s3-bucket-logging-enabled:
+    source: managed
+    identifier: S3_BUCKET_LOGGING_ENABLED
+    description: >-
+      S3 buckets have server access logging enabled.
+    resource_types: [AWS::S3::Bucket]
+    controls:
+      nist_800_53_r5: [au-2, au-12]
+      ksi: [KSI-MLA-LET]
+    coverage: partial
+    coverage_note: >-
+      Checks that logging is configured, not the destination's retention, encryption or
+      access controls. A bucket logging to an unretained destination passes.
+  elb-logging-enabled:
+    source: managed
+    identifier: ELB_LOGGING_ENABLED
+    description: >-
+      Load balancers have access logging enabled.
+    resource_types: [AWS::ElasticLoadBalancingV2::LoadBalancer]
+    controls:
+      nist_800_53_r5: [au-2, au-12]
+      ksi: [KSI-MLA-LET]
+    coverage: full
+  vpc-flow-logs-enabled:
+    source: managed
+    identifier: VPC_FLOW_LOGS_ENABLED
+    description: >-
+      VPC flow logs are enabled.
+    resource_types: [AWS::EC2::VPC]
+    controls:
+      nist_800_53_r5: [au-2, au-12]
+      ksi: [KSI-MLA-LET]
+    coverage: partial
+    coverage_note: >-
+      ALSO PRESENT IN THE NET PACK. Deploying both packs evaluates this rule twice and
+      bills twice; conformance packs namespace rule names so there is no collision, but
+      the duplication is real. Checks existence only -- not destination, retention, or
+      whether rejected traffic is captured.
+  rds-logging-enabled:
+    source: managed
+    identifier: RDS_LOGGING_ENABLED
+    description: >-
+      RDS instances export the expected log types to CloudWatch.
+    resource_types: [AWS::RDS::DBInstance]
+    controls:
+      nist_800_53_r5: [au-2, au-12]
+      ksi: [KSI-MLA-LET]
+    coverage: full
+  api-gw-execution-logging-enabled:
+    source: managed
+    identifier: API_GW_EXECUTION_LOGGING_ENABLED
+    description: >-
+      API Gateway stages have execution logging enabled.
+    resource_types: [AWS::ApiGateway::Stage]
+    controls:
+      nist_800_53_r5: [au-2, au-12]
+      ksi: [KSI-MLA-LET]
+    coverage: full
+  elasticsearch-logs-to-cloudwatch:
+    source: managed
+    identifier: ELASTICSEARCH_LOGS_TO_CLOUDWATCH
+    description: >-
+      Elasticsearch domains publish logs to CloudWatch.
+    resource_types: [AWS::Elasticsearch::Domain]
+    controls:
+      nist_800_53_r5: [au-2, au-12]
+      ksi: [KSI-MLA-LET]
+    coverage: full
+  opensearch-logs-to-cloudwatch:
+    source: managed
+    identifier: OPENSEARCH_LOGS_TO_CLOUDWATCH
+    description: >-
+      OpenSearch domains publish logs to CloudWatch.
+    resource_types: [AWS::OpenSearch::Domain]
+    controls:
+      nist_800_53_r5: [au-2, au-12]
+      ksi: [KSI-MLA-LET]
+    coverage: full
+  wafv2-logging-enabled:
+    source: managed
+    identifier: WAFV2_LOGGING_ENABLED
+    description: >-
+      WAFv2 web ACLs have logging enabled.
+    resource_types: [AWS::WAFv2::WebACL]
+    controls:
+      nist_800_53_r5: [au-2, au-12]
+      ksi: [KSI-MLA-LET]
+    coverage: full
+  s3-event-notifications-enabled:
+    source: managed
+    identifier: S3_EVENT_NOTIFICATIONS_ENABLED
+    description: >-
+      S3 buckets have event notifications configured.
+    resource_types: [AWS::S3::Bucket]
+    controls:
+      nist_800_53_r5: [au-6, si-4]
+      ksi: [KSI-MLA-RVL, KSI-SVC-EIS]
+    coverage: supporting
+    coverage_note: >-
+      Notifications enable reaction to object events; they are not audit logging and do
+      not evidence AU-2 record generation.
+  rds-enhanced-monitoring-enabled:
+    source: managed
+    identifier: RDS_ENHANCED_MONITORING_ENABLED
+    description: >-
+      RDS instances have enhanced monitoring enabled.
+    resource_types: [AWS::RDS::DBInstance]
+    controls:
+      nist_800_53_r5: [si-4]
+      ksi: [KSI-MLA-RVL, KSI-SVC-EIS]
+    coverage: supporting
+    coverage_note: >-
+      Operating-system metrics, not security audit records.
+  beanstalk-enhanced-health-reporting-enabled:
+    source: managed
+    identifier: BEANSTALK_ENHANCED_HEALTH_REPORTING_ENABLED
+    description: >-
+      Beanstalk environments use enhanced health reporting.
+    resource_types: [AWS::ElasticBeanstalk::Environment]
+    controls:
+      nist_800_53_r5: [si-4]
+      ksi: [KSI-SVC-EIS]
+    coverage: supporting
+    coverage_note: >-
+      Availability health, not security monitoring.
+  securityhub-enabled:
+    source: managed
+    identifier: SECURITYHUB_ENABLED
+    description: >-
+      Security Hub is enabled.
+    resource_types: [AWS::::Account]
+    controls:
+      nist_800_53_r5: [si-4, ca-7]
+      ksi: [KSI-MLA-EVC, KSI-SVC-EIS]
+    coverage: partial
+    coverage_note: >-
+      Checks ENABLEMENT, never that anyone acts on findings. Security Hub also generates
+      its own Config rules, which count against the same 1000-rules-per-Region budget as
+      this pack.
+  guardduty-enabled-centralized:
+    source: managed
+    identifier: GUARDDUTY_ENABLED_CENTRALIZED
+    description: >-
+      GuardDuty is enabled and centrally managed.
+    resource_types: [AWS::::Account]
+    controls:
+      nist_800_53_r5: [si-4, ca-7]
+      ksi: [KSI-MLA-EVC, KSI-SVC-EIS]
+    coverage: partial
+    coverage_note: >-
+      Enablement only. Detection existing is not detection being acted upon.
+  cloudwatch-alarm-action-check:
+    source: managed
+    identifier: CLOUDWATCH_ALARM_ACTION_CHECK
+    description: >-
+      CloudWatch alarms have actions configured.
+    resource_types: [AWS::CloudWatch::Alarm]
+    controls:
+      nist_800_53_r5: [si-4, au-6]
+      ksi: [KSI-MLA-RVL, KSI-SVC-EIS]
+    coverage: partial
+    coverage_note: >-
+      An alarm with an action wired is closer to response than most rules here get, but
+      the action's destination and whether anyone reads it are invisible.
+    parameters:
+      alarmActionRequired: { literal: 'true' }
+      insufficientDataActionRequired: { literal: 'true' }
+      okActionRequired: { literal: 'false' }
+  redshift-cluster-configuration-check:
+    source: managed
+    identifier: REDSHIFT_CLUSTER_CONFIGURATION_CHECK
+    description: >-
+      Redshift clusters have audit logging and encryption enabled.
+    resource_types: [AWS::Redshift::Cluster]
+    controls:
+      nist_800_53_r5: [au-2, au-9]
+      ksi: [KSI-MLA-LET, KSI-MLA-OSM]
+    coverage: full
+    coverage_note: >-
+      Spans two domains: its loggingEnabled facet is LOG and its clusterDbEncrypted
+      facet is CRYPTO. Carried here because logging is the facet this pack's crosswalk
+      claims.
+    parameters:
+      clusterDbEncrypted: { literal: 'true' }
+      loggingEnabled: { literal: 'true' }
+  cloudtrail-security-trail-enabled:
+    source: managed
+    identifier: CLOUDTRAIL_SECURITY_TRAIL_ENABLED
+    not_in_aws_pack: >-
+      Real managed rule, absent from AWS's NIST r5 pack. Identifier UNVERIFIED against a
+      published AWS artifact.
+    description: >-
+      A CloudTrail trail meeting the security-trail criteria exists.
+    resource_types: [AWS::::Account]
+    controls:
+      nist_800_53_r5: [au-2, au-9]
+      ksi: [KSI-MLA-LET, KSI-MLA-OSM]
+    coverage: full
+    coverage_note: >-
+      Asserts a bundle: multi-Region, log file validation, encryption and no
+      management-event exclusions. Account-level periodic.
+  cloudwatch-log-group-encrypted:
+    source: managed
+    identifier: CLOUDWATCH_LOG_GROUP_ENCRYPTED
+    not_in_aws_pack: >-
+      Real managed rule, absent from AWS's NIST r5 pack. Identifier UNVERIFIED.
+    description: >-
+      CloudWatch log groups are encrypted with a KMS key.
+    resource_types: [AWS::Logs::LogGroup]
+    controls:
+      nist_800_53_r5: [au-9]
+      ksi: [KSI-MLA-OSM]
+    coverage: full
+  cw-loggroup-retention-period-check:
+    source: managed
+    identifier: CW_LOGGROUP_RETENTION_PERIOD_CHECK
+    not_in_aws_pack: >-
+      Real managed rule, absent from AWS's NIST r5 pack. Identifier and the
+      MinRetentionTime parameter are UNVERIFIED -- and this rule carries an ODP, so a
+      wrong parameter name means the retention threshold silently does not apply.
+    description: >-
+      CloudWatch log groups retain records for at least the organization-defined period.
+    resource_types: [AWS::Logs::LogGroup]
+    controls:
+      nist_800_53_r5: [au-11, au-4]
+      ksi: [KSI-MLA-OSM]
+    coverage: partial
+    coverage_note: >-
+      EVALUATES EVERY LOG GROUP IN THE ACCOUNT, including AWS-service-created ones.
+      Lambda log groups default to never-expire and read as compliant; service groups
+      created with short defaults fail immediately. Expect a large day-one
+      non-compliance count that is mostly not yours. Scope by tag or accept the noise --
+      do NOT widen the ODP to make the number look better.
+    parameters:
+      MinRetentionTime: { odp: audit_log_retention_days }
+  guardduty-non-archived-findings:
+    source: managed
+    identifier: GUARDDUTY_NON_ARCHIVED_FINDINGS
+    not_in_aws_pack: >-
+      Real managed rule, absent from AWS's NIST r5 pack. Identifier and the three
+      severity parameters are UNVERIFIED.
+    description: >-
+      GuardDuty findings are triaged within the organization-defined window by severity.
+    resource_types: [AWS::::Account]
+    controls:
+      nist_800_53_r5: [si-4, au-6]
+      ksi: [KSI-MLA-RVL, KSI-SVC-EIS]
+    coverage: partial
+    coverage_note: >-
+      The closest this pack gets to evidencing that findings are ACTED ON rather than
+      merely produced. It sees archival, which is a proxy for triage -- a finding
+      archived without investigation passes.
+    parameters:
+      daysLowSev: { odp: finding_age_low_days }
+      daysMediumSev: { odp: finding_age_medium_days }
+      daysHighSev: { odp: finding_age_high_days }

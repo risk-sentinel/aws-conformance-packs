@@ -14,7 +14,7 @@ labels: pack, domain:log
 
 ## Candidate managed rules
 
-`cloud-trail-enabled`, `multi-region-cloudtrail-enabled`,
+`cloudtrail-enabled`, `multi-region-cloudtrail-enabled`,
 `cloudtrail-security-trail-enabled`, `cloud-trail-log-file-validation-enabled`,
 `cloud-trail-encryption-enabled`, `cloud-trail-cloud-watch-logs-enabled`,
 `cloudtrail-s3-dataevents-enabled`, `s3-bucket-logging-enabled`,

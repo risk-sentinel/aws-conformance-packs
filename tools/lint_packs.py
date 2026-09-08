@@ -559,6 +559,37 @@ def check_guard_policies(root: Path, rep: Report) -> None:
         rep.ok(f"Guard token substitution: {len(policies)} policy file(s), {n} token(s) bound")
 
 
+def check_parameter_bindings(root: Path, rep: Report) -> None:
+    """Every rule parameter binds exactly one of `odp` or `literal`.
+
+    A binding with neither renders nothing; a binding with both is ambiguous about
+    whether the value was a tenant decision, which is the distinction the
+    traceability report exists to record.
+    """
+    rules_dir = root / "rules"
+    files = sorted(rules_dir.glob("*.yaml")) if rules_dir.is_dir() else []
+    if not files:
+        rep.defer("Parameter bindings", "rules/*.yaml do not exist yet")
+        return
+    bad = 0
+    for rf in files:
+        try:
+            doc = yaml.safe_load(rf.read_text()) or {}
+        except yaml.YAMLError:
+            continue
+        for name, rule in (doc.get("rules") or {}).items():
+            for param, b in (rule.get("parameters") or {}).items():
+                has = {"odp", "literal"} & set(b or {})
+                if len(has) != 1:
+                    rep.fail(
+                        f"{rf.relative_to(root)}:{name}.{param}: binding must declare "
+                        f"exactly one of `odp` or `literal`, found {sorted(has) or 'neither'}."
+                    )
+                    bad += 1
+    if not bad:
+        rep.ok(f"Parameter bindings: {len(files)} catalog(s)")
+
+
 def check_generated_packs(root: Path, rep: Report) -> None:
     """Cap assertions against generated templates.
 
@@ -618,6 +649,7 @@ CHECKS = (
     check_overlays,
     check_rule_catalogs,
     check_guard_policies,
+    check_parameter_bindings,
     check_generated_packs,
 )
 

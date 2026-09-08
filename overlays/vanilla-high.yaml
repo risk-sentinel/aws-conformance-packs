@@ -42,38 +42,80 @@ baseline_level: high
 
 parameters:
 
-  # --- ia-5.1 -> ia-05.01_odp.02 (composition and complexity rules) ----------
-
-  - param_id: password_minimum_length
-    value: 14
-
-  - param_id: password_maximum_age_days
-    value: 90
-
-  - param_id: password_reuse_prevention
-    value: 24
-
-  # --- ia-5 -> ia-05_odp.01 (time period by authenticator type) -------------
-
-  - param_id: access_key_maximum_age_days
-    value: 90
-
-  - param_id: secret_rotation_period_days
-    value: 90
-
-  # --- ac-2.3 -> ac-02.03_odp.02 (inactivity before disabling) --------------
-  #
-  # ac-2.3 is NOT in the Low baseline. Under `baseline_level: low` these two do
-  # not render into the pack, and the generator says so rather than silently
-  # dropping them.
-
+  # --- ac-2.3 -> ac-02.03_odp.02 (time period) ---
   - param_id: credential_inactivity_days
     value: 90
-
   - param_id: secret_unused_days
     value: 90
 
-# No enumerated selections are in scope for the IAM domain yet. The key is
-# present so the file matches SPARC's response envelope, which always carries
-# both collections.
+  # --- ac-4 -> ac-04_odp (information flow control policies) ---
+  - param_id: authorized_igw_vpc_ids
+    value: []
+
+  # --- ac-6.1 -> ac-06.01_odp.05 (security-relevant information) ---
+  - param_id: blocked_kms_action_patterns
+    value:
+    - kms:Decrypt
+    - kms:ReEncryptFrom
+
+  # --- au-11 -> au-11_odp (time period) ---
+  - param_id: audit_log_retention_days
+    value: 365
+
+  # --- ia-5 -> ia-05_odp.01 (time period by authenticator type) ---
+  - param_id: access_key_maximum_age_days
+    value: 90
+  - param_id: secret_rotation_period_days
+    value: 90
+
+  # --- ia-5.1 -> ia-05.01_odp.02 (composition and complexity rules) ---
+  - param_id: password_maximum_age_days
+    value: 90
+  - param_id: password_minimum_length
+    value: 14
+  - param_id: password_reuse_prevention
+    value: 24
+
+  # --- sc-12 -> sc-12_odp (requirements) ---
+  - param_id: certificate_expiry_warning_days
+    value: 90
+  - param_id: key_rotation_period_days
+    value: 365
+
+  # --- sc-13 -> sc-13_odp.02 (types of cryptography for each specified cryptographic use) ---
+  - param_id: approved_kms_key_arns
+    value: []
+
+  # --- sc-7.4 -> sc-07.04_odp (frequency) ---
+  - param_id: traffic_flow_policy_review_days
+    value: 365
+
+  # --- sc-7.5 -> sc-07.05_odp.02 (systems) ---
+  - param_id: authorized_tcp_ports
+    value:
+    - 443
+  - param_id: blocked_ingress_ports
+    value:
+    - 20
+    - 21
+    - 3389
+    - 3306
+    - 4333
+
+  # --- sc-8.1 -> sc-08.01_odp (one-or-more) ---
+  - param_id: approved_ssl_policies
+    value:
+    - ELBSecurityPolicy-TLS13-1-2-2021-06
+    - ELBSecurityPolicy-TLS-1-2-Ext-2018-06
+
+  # --- si-4 -> si-04_odp.06 (frequency) ---
+  - param_id: finding_age_high_days
+    value: 1
+  - param_id: finding_age_low_days
+    value: 30
+  - param_id: finding_age_medium_days
+    value: 7
+
+# No enumerated selections are in scope yet. The key is present so the file
+# matches SPARC's response envelope, which always carries both collections.
 selections: []
