@@ -8,18 +8,19 @@ per-organization ODP overlay. It is a *generator and a deployment pattern*, not 
 profile: there are no InSpec controls here. Evidence leaves this repo as Config
 rule evaluations, which `risk-sentinel/aws-config` converts to HDF.
 
-**Last updated:** 2026-09-08 (**Service limits verified against AWS documentation, and
-all six were correct.** 130 rules per pack, 60 parameters, 1000 rules per Region per
-account, 50 packs per account and per organization, 51,200-byte inline body, 300 KB from
-S3 — every one non-increasable, confirmed on the Service Limits page and the
-`PutConformancePack` / `PutOrganizationConformancePack` API references. The reading also
-confirmed the arithmetic that actually binds: **50 × 130 is unreachable**, because pack
-rules count against the 1000-per-Region limit, so the real ceiling is about **seven full
-packs per Region per account**. Three operational facts surfaced that we were not
-enforcing, now all three are: in **organization mode only** the delivery bucket must be
-prefixed `awsconfigconforms`; `ExcludedAccounts` must match `\d{12}` or AWS rejects the
-whole call and the pack deploys to **nobody**; and a staged template must not sit in an
-archived storage class, which fails with an error that never mentions storage class.)
+**Last updated:** 2026-09-08 (**Live verification — the preflight was pointed at a real
+Config recorder for the first time and found three defects in under an hour**, none of
+which the test suite could have caught, because all three depended on a real recorder's
+shape. It ignored the boundary and so refused deployments that were entirely correct; a
+resource type in a pack's `required_resource_types` and no rule's went unmapped because
+the lint scanned only rule-level types; and a refusal named the excluded resource type
+rather than the rules it made inert. **The headline result is that the preflight
+refuses on a real production recorder, correctly** — that recorder excludes 58 resource
+types and records no global resources, so the IAM pack would evaluate nothing anywhere
+and nineteen other needed types are not captured. Those packs would have deployed,
+reported `INSUFFICIENT_DATA`, and shown a green board. **Nothing was deployed** — the
+account is production and the refusal is the result. The round trip worked too: a
+boundary derived from what the recorder actually records composed 157 rules to 117.)
 
 ---
 
@@ -79,6 +80,20 @@ decision, an omission without one is invisible.
 `tests/test_generate.py::test_every_candidate_rule_named_in_the_issue_is_built`
 now asserts this for NET, so the next silent shortfall fails the build.
 
+### Keeping the front door honest
+
+Two README tables are **generated** by `tools/coverage_report.py`, and CI fails
+when either drifts from the catalogs:
+
+- **per-resource-type coverage** — what a team gets for the services it runs
+- **the pack registry** — rules, controls, ODP-bound parameters per pack
+
+Both were hand-written first, and the registry proves why that does not hold: it
+shipped as planning estimates and stayed that way after the packs were built,
+claiming RPL was 12–18 rules when it is 25 and NET 20–30 when it is 34. An
+estimate left in place after the thing exists is not an estimate any more; it is
+a wrong number in the front door.
+
 ### PR ceremony
 
 **Every PR updates this file.** The plan is the repository's memory of what is
@@ -120,6 +135,7 @@ checklist.
 | Deployment `inputs.yml` contract | **Shipped** — `inputs.template.yml` + validator + preflight + both forges |
 | Reference pack available to mine | `sparc-iac` `AWS/ECS/modules/aws_config/` — 107 rules, awslabs NIST r5 pack trimmed for a Fargate boundary |
 | Evidence path | `risk-sentinel/aws-config` reusable workflow already fetches Config evaluations → HDF. Emit grant filed as **sparc-iac#701**; workflows degrade to build artifacts until it lands |
+| Live verification | **Preflight verified against a real recorder; it refuses, correctly.** Nothing deployed — no `put-conformance-pack` call has been made |
 | Highest-priority next work | **Phase 4 deployment portability** (`inputs.yml`, two-forge pipeline, the OUT-OF-BAND recorder check) and **live verification** — nothing has evaluated a real resource. Then **#8 GOV**, which needs owner decisions. Open: SonarCloud onboarding for the 5th required context |
 
 ---
@@ -518,6 +534,12 @@ delivery:
 mode: single-account | organization
 overlay: overlays/mine.yml
 ```
+
+`inputs.yml` and any non-vanilla overlay are **gitignored**. They hold account
+ids, bucket names and Regions, and the README's own instruction is to copy the
+template and fill it in — so without this the first person to follow the
+documentation commits their environment. `docs/dev/issue_rules.md` is explicit
+that account identifiers stay out of the repository's history.
 
 **Nothing gets a default.** A defaulted region reads an empty account and
 reports a clean result; a defaulted bucket files evidence under someone else's

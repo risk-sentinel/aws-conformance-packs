@@ -54,44 +54,81 @@ regenerate + redeploy rather than a stack parameter update.
 ## Layout
 
 ```
-odp/catalog.yaml              ODP declarations: type, default, constraints, OSCAL param-id
-rules/<domain>.yaml           rule → ODP + control crosswalk, portable
-guard/*.guard                 custom policies where managed rules expose no knob
-overlays/<org>.yaml           per-org ODP values + control vocabulary aliases
-oscal/                        resolved profiles for --set-parameters-from
-generate.py                   renderer and validator
-out/                          generated packs and reports (git-ignored)
-issues/                       domain issue bodies; see scripts/create-issues.sh
+odp/catalog.yaml               ODP declarations: type, constraints, OSCAL param-id
+rules/<domain>.yaml            rule -> ODP + control crosswalk, portable
+guard/*.guard                  Guard policies where no managed rule exposes the knob
+overlays/vanilla*.yaml         per-baseline reference values; copy, do not edit
+gov/                           the non-Config evidence producer, and its artifacts
+inputs.template.yml            deployment contract; copy to inputs.yml
+generate.py                    renderer and validator
+tools/                         generator, linters, preflight, evidence producers
+tests/                         the test suite; every guard is negative-controlled
+vendor/                        pinned upstream snapshots, each with PROVENANCE.md
+  fedramp/                       FedRAMP machine-readable rules (KSI vocabulary)
+  nist/                          derived NIST Rev 5 parameter index
+  aws/                           managed-rule index from AWS's published packs
+  aws-services/                  service availability and Region lists
+scripts/                       deploy and issue-creation scripts
+ci/gitlab/                     GitLab pipeline; .github/workflows/ for GitHub
+out/                           generated packs and reports (git-ignored)
+issues/                        domain issue bodies; see scripts/create-issues.sh
+docs/dev/                      implementation plan, issue rules, dispositions
 ```
+
+Everything under `vendor/` is **derived and pinned**, never hand-edited, and each
+directory carries a `PROVENANCE.md` recording its source, version and digest. A
+hand-edit there is how a parameter id that joins to nothing gets in.
 
 ## Generating a pack
 
 ```bash
 pip install pyyaml
-python3 generate.py --overlay overlays/example-agency.yaml --emit-oscal
+python3 generate.py --overlay overlays/vanilla.yaml --emit-oscal
 ```
 
-Per framework this emits:
+Useful flags:
+
+| Flag | Effect |
+| --- | --- |
+| `--baseline low\|moderate\|high` | override the overlay's own `baseline_level` |
+| `--region <id>` | drop rules whose service does not exist there, recording why |
+| `--inputs inputs.yml` | apply a boundary — rules for services you do not run are dropped, recording why |
+| `--rules rules/iam.yaml` | render one domain instead of all six |
+| `--set-parameters-from <f>` | drive values from an OSCAL resolved profile |
+| `--emit-oscal` | also write the OSCAL `set-parameter` stub |
+
+Per pack this emits:
 
 | Artifact | Purpose |
 | --- | --- |
 | `<pack>.yaml` | the conformance pack template |
 | `<pack>.traceability.csv` | rule ↔ control ↔ ODP, with `assigned_by` provenance |
-| `<pack>.evidence-tags.json` | HDF enrichment payload: control ids + the ODP value each check measured against |
-| `<pack>.coverage.md` | automated vs documented coverage, with the denominator stated |
+| `<pack>.evidence-tags.json` | control ids **plus the ODP value each check measured against** |
+| `<pack>.coverage.md` | coverage with its denominator stated, and every exclusion with its reason |
 | `<pack>.oscal-set-params.json` | OSCAL `set-parameter` stub (with `--emit-oscal`) |
 
 Values resolve **overlay → OSCAL `set-parameter` → catalog default**, and the
-winning source is recorded per value in the traceability CSV. To drive the build
-from a tailored profile instead of a hand-written overlay:
+winning source is recorded per value in the traceability CSV. A catalog default
+and an overlay value can be byte-identical; only that column distinguishes a
+threshold somebody chose from one that merely rendered.
 
-```bash
-python3 generate.py --set-parameters-from oscal/agency-moderate-resolved.json
-```
+### The generator is also the validator
 
-Generation fails rather than deploying a wrong threshold. Out-of-range values,
-undeclared ODP references, enum violations, port lists exceeding a rule's
-capacity, and unsubstituted Guard tokens all exit non-zero.
+It fails rather than emitting a pack whose thresholds nobody chose. A wrong value
+in a conformance pack does not crash — it deploys, evaluates, and reports a clean
+result. Non-zero exit on:
+
+- a value outside its declared constraint, from **any** source
+- an undeclared ODP reference, or an `oscal_param_id` that is not a real parameter
+  of its control
+- a KSI that does not exist, or that claims none of the rule's own controls
+- a managed rule identifier or parameter name AWS does not publish
+- an unsubstituted `{{Guard}}` token — Guard does *not* error on a live
+  placeholder; it evaluates the literal text
+- more than 130 rules or 60 parameters per pack, or a template over the size limits
+
+Exclusions are never silent. A rule dropped for a baseline, a Region or a
+boundary is listed in that pack's `coverage.md` with **why** and **what it bound**.
 
 ## Deploying
 
@@ -209,76 +246,95 @@ Generated by `tools/coverage_report.py`; CI fails if it drifts from the
 catalogs, because a hand-maintained coverage claim is stale the day after it is
 written.
 
-## Pack registry and estimated coverage
+## Pack registry
 
-**These were planning estimates and are now measurements.** All six packs are
-built. Rule counts below are what actually renders; the controls-touched columns
-still overlap between packs and still do not sum to a baseline.
+<!-- PACK-REGISTRY:START -->
 
-| Pack | Domain | 800-53r5 families | Controls touched (Mod) | Est. rules | Est. ODP params | 20x KSIs | Automated share |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| IAM | Identity & access | AC-2/3/5/6/17, IA-2/4/5/7/8 | ~35 | 25–35 | 7 | KSI-IAM-01…06 | high |
-| NET | Network & boundary | SC-7(+), AC-4, AC-17, SC-5 | ~25 | 20–30 | 3 | KSI-CNA-01…07 | high |
-| CRYPTO | Cryptography & data | SC-8/12/13/28, MP-5, SI-7 | ~20 | 25–35 | 4 | KSI-SVC-02/03/05/06 | high |
-| LOG | Logging & audit | AU-2/3/4/6/9/11/12, SI-4, CA-7 | ~30 | 30–40 | 3 | KSI-MLA-01/02/06, CMT-01 | medium-high |
-| VCM | Vuln & config mgmt | CM-2/3/6/7/8, SI-2, RA-5 | ~35 | 25–35 | 3 | KSI-SVC-01/07, MLA-03/04/05, CMT-02/03 | medium |
-| RPL | Resilience & recovery | CP-9/10, SC-5, SI-13 | ~15 | 12–18 | 3 | KSI-RPL-01…04, CNA-06 | medium |
-| GOV | Governance & policy | all `-1`, AT, PS, PL, PM, SA, SR | ~120 | **0** | 7 | KSI-PIY, CED, INR, TPR, CMT-04/05 | none via Config |
+| Pack | Rules | Controls touched | ODP-bound params | 20x indicators | Scope |
+| --- | ---: | ---: | ---: | ---: | --- |
+| **CRYPTO** | 31 | 11 | 4 | 3 | regional |
+| **IAM** | 25 | 13 | 9 | 4 | global |
+| **LOG** | 25 | 23 | 9 | 6 | regional |
+| **NET** | 34 | 14 | 3 | 5 | regional |
+| **RPL** | 25 | 6 | 4 | 2 | regional |
+| **VCM** | 17 | 11 | 4 | 8 | regional |
+| **GOV** | **0** | — | 7 | — | non-Config producer |
 
-Totals: roughly 137–193 Config rules across six deployable packs, comfortably
-under the 1000-per-Region limit and with every pack under the 130 cap.
+**157 Config rules across 6 deployable packs.** Every pack is under the hard 130-rule cap; all of them together are 157 of the 1000-per-Region-per-account ceiling.
+
+GOV emits **zero Config rules by design** — roughly 120 Moderate controls have no
+resource-configuration signal, and it evidences those against policy artifacts
+instead. See `gov/README.md`.
+
+Controls-touched **overlaps between packs and does not sum to a baseline**. It
+counts controls a pack's rules crosswalk to, not controls satisfied — each pack's
+generated `coverage.md` says which are `full`, `partial` or `supporting`, and what
+each rule cannot see.
+
+<!-- PACK-REGISTRY:END -->
+
+Generated by `tools/coverage_report.py`; CI fails if it drifts. This table shipped
+as planning **estimates** and stayed that way after the packs were built — it
+claimed RPL was 12–18 rules when it is 25. An estimate left in place after the
+thing exists is not an estimate any more.
 
 ### Reading these numbers honestly
 
-**The Config-visible surface is roughly 40% of a Moderate baseline.** GOV holds
+**The Config-visible surface is a minority of a Moderate baseline.** GOV holds
 about 120 controls with no resource-configuration signal at all — the `-1` policy
-controls, training, personnel, planning, acquisition. Those are not a gap to be
-closed with more Config rules; they need a different evidence producer, which is
-what the GOV issue specifies.
+controls, training, personnel, planning, acquisition. Those are not a gap to close
+with more Config rules.
 
-**Coverage percentages have a misleading denominator by default.** A generated
-coverage report counts controls the catalog already references, not the size of
-the baseline. A pack reporting 95% means the controls it models are automated,
-not that the baseline is covered. Diff the catalog against the full tailored
-profile before reporting anything outward.
+**Controls-touched has a misleading denominator by default.** It counts controls
+the catalogs reference, not the size of the baseline. Diff the catalogs against
+your tailored profile before reporting anything outward.
 
 **`INSUFFICIENT_DATA` is not compliance.** A rule with no in-scope resources
-reports insufficient data, which most dashboards render as "not failing." Every
-pack carries a recorder-prerequisite check for exactly this reason.
+reports insufficient data, which most dashboards render as "not failing". The
+recorder preflight refuses to deploy for exactly this reason.
 
-**FedRAMP 20x KSI ids track the published Phase One Low set.** Moderate adds
-indicators not modeled here (KSI-CNA-08, KSI-MLA-08, KSI-SVC-08/09/10) and later
-phases add themes. Re-sync against fedramp.gov before assessment use.
-
-## Working the issues
-
-Domain issue bodies live in `issues/`. To create them with labels:
-
-```bash
-DRY_RUN=1 ./scripts/create-issues.sh                    # preview
-REPO=clem-field/aws-conformance-packs ./scripts/create-issues.sh
-```
-
-The script creates the label set first, skips issues whose titles are already
-open, and reads title/labels from each file's front matter.
-
-Each domain issue carries its scope, candidate managed rules, ODP bindings, the
-domain-specific gotchas found during research, and acceptance criteria. Work one
-pack per issue; the epic tracks cross-cutting constraints.
+**FedRAMP 20x indicator ids come from a pinned snapshot** in `vendor/fedramp/`,
+version-stamped into every evidence file. 20x changes until High locks around
+2027-02; `tools/sync_fedramp.py --check` runs weekly so drift is a failing job
+rather than a question from an assessor.
 
 ## Contributing a rule
 
-1. Add the ODP to `odp/catalog.yaml` if the knob is new — with constraints, so a
-   bad value fails the build instead of deploying.
-2. Add the rule to the domain catalog with `controls`, `coverage`, and parameter
-   bindings. Be accurate on `coverage`; the traceability report is only worth
-   reading if that field is honest.
-3. If the managed rule exposes no parameter for the ODP, either write a Guard
-   policy in `guard/` with `{{TokenName}}` placeholders, or mark the ODP
-   `evidence_only_odps` so it appears in evidence and is visibly not enforced.
-   Never let an unenforceable ODP look like a control.
-4. Regenerate. Unsubstituted tokens, unknown ODP references, and cap violations
-   fail loudly.
+1. **Add the ODP to `odp/catalog.yaml`** if the knob is new. Key it by our name and
+   join to OSCAL — several ODPs may share one `oscal_param_id`, which is the normal
+   shape in IA and AC. The `oscal_param_id` must be a real parameter of its control:
+   `ac-6` publishes none at all, and a well-formed id that refers to nothing joins to
+   nothing while looking correct.
+2. **Give it a constraint.** A bad value must fail the build rather than deploy. An
+   integer needs `min` and `max`; a list needs `max_items`, and an `item_pattern`
+   where the shape matters — AWS silently *ignores* a malformed `amisByTagKeyAndValue`
+   entry, so the allow-list ends up smaller than it reads.
+3. **Add the rule to the domain catalog** with `controls`, `coverage`, `resource_types`
+   and its bindings. `partial` or `supporting` without a `coverage_note` is a build
+   failure: an unexplained partial is indistinguishable from an overstated `full`.
+4. **Say what the rule cannot see**, in the note. It renders into the deployed
+   `Description`, which is the only field that travels — conformance-pack rules do not
+   support tags, so an operator reading the Config console sees only that.
+5. **Map the resource type** in `vendor/aws-services/resource-type-map.yaml`.
+   Explicitly: a naive string match resolves `AWS::RDS::DBCluster` to **DocDB**, since
+   DocumentDB shares the `rds` ARN namespace, and a wrong service means a wrong Region
+   scope.
+6. **If no managed rule exposes the knob**, either write a Guard policy in `guard/`
+   with `{{Token}}` placeholders — remembering `CUSTOM_POLICY` rules take no
+   `InputParameters`, so the value bakes at generation time and changing it means
+   regenerate + redeploy — or declare the ODP `evidence_only` **with a reason**. Never
+   let an unenforceable ODP look like a control.
+7. **Regenerate and run the suite.** `python3 generate.py --overlay overlays/vanilla.yaml`,
+   `python3 tools/lint_packs.py`, `python3 -m pytest tests/ -q`.
+
+### The rule this repository is built around
+
+**A guard that has never been shown to fail is not a guard.** Every check here was
+negative-controlled — shown to reject the specific defect it exists to catch — before
+it was trusted. Several caught real errors in the same change that introduced them,
+including three invented OSCAL parameter ids and six mis-assigned FedRAMP indicators.
+
+If you add a check, add the test that proves it fires.
 
 ## License
 

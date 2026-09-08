@@ -1310,3 +1310,44 @@ def test_excluded_accounts_in_single_account_mode_refused():
     c = copy.deepcopy(GOOD_INPUTS)
     c["excluded_accounts"] = ["123456789012"]
     assert any("ignored in single-account mode" in e for e in v.validate(c))
+
+
+# --- found by running the preflight against a live account -------------------
+
+def test_preflight_is_boundary_aware():
+    """Found live: the preflight asserted every resource type the catalogs
+    mention while the generator had already excluded the rules using them,
+    because the boundary does not run those services. The two disagreed and the
+    preflight was stricter -- refusing a deployment that was entirely correct.
+    A guard that refuses valid work is one people learn to bypass."""
+    from tools import aws_services
+    p = _load("preflight")
+    svc = aws_services.load()
+    everything = p.required_resource_types(["NET"])
+    narrowed = p.required_resource_types(["NET"], {"S3"}, svc)
+    assert len(narrowed["NET"]) < len(everything["NET"])
+    assert "AWS::S3::Bucket" in narrowed["NET"]
+    assert "AWS::EC2::SecurityGroup" not in narrowed["NET"]
+
+
+def test_pack_level_required_resource_types_are_mapped_too():
+    """AWS::EC2::NetworkAcl appears in a pack's `required_resource_types` and no
+    rule's, so a lint scanning only rule-level types reported clean while the
+    preflight crashed on it against a live account."""
+    from tools import aws_services
+    c = aws_services.load()
+    for f in (ROOT / "rules").glob("*.yaml"):
+        doc = yaml.safe_load(f.read_text())
+        for rt in (doc.get("required_resource_types") or []):
+            c.for_resource_type(rt)          # KeyError if unmapped
+
+
+def test_preflight_refusal_names_the_rules_that_would_go_inert():
+    """A boundary is service-level; a recorder exclusion is resource-TYPE level,
+    so a service can be partially recorded. Naming the excluded type is true and
+    not actionable; naming the rules that go inert is."""
+    p = _load("preflight")
+    using = p.rules_using({"AWS::EC2::Instance"})
+    assert "AWS::EC2::Instance" in using
+    assert any("/" in r for r in using["AWS::EC2::Instance"])   # domain/rule
+    assert len(using["AWS::EC2::Instance"]) > 1

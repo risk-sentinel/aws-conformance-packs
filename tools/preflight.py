@@ -45,8 +45,20 @@ def _aws(args: list[str], region: str, profile: str | None) -> dict:
     return json.loads(r.stdout or "{}")
 
 
-def required_resource_types(packs: list[str]) -> dict[str, set[str]]:
-    """Resource types each selected pack declares it needs recorded."""
+def required_resource_types(packs: list[str], boundary: set[str] | None = None,
+                            svc=None) -> dict[str, set[str]]:
+    """Resource types each selected pack declares it needs recorded.
+
+    BOUNDARY-AWARE, and it has to be. Found by running this against a real
+    account: the preflight asserted every resource type the catalogs mention,
+    while the generator had already excluded the rules that use them because the
+    boundary does not run those services. The two disagreed, and the preflight
+    was the stricter one — so it refused a deployment that would have been
+    entirely correct.
+
+    A preflight that refuses valid work is not a safe default. It is a guard
+    people learn to bypass.
+    """
     want: dict[str, set[str]] = {}
     for f in sorted((ROOT / "rules").glob("*.yaml")):
         doc = yaml.safe_load(f.read_text())
@@ -55,10 +67,34 @@ def required_resource_types(packs: list[str]) -> dict[str, set[str]]:
         types = set(doc.get("required_resource_types") or [])
         for rule in doc["rules"].values():
             types |= set(rule.get("resource_types") or [])
+        if boundary is not None and svc is not None:
+            types = {
+                rt for rt in types
+                if svc.for_resource_type(rt) is None
+                or svc.for_resource_type(rt).service_id in boundary
+            }
         # Account-level pseudo-type: not a recorded resource, so never asserted.
         types.discard("AWS::::Account")
         want[doc["domain"]] = types
     return want
+
+
+def rules_using(types: set[str]) -> dict[str, list[str]]:
+    """Which rules reference each resource type — so a refusal names the cost.
+
+    A boundary is service-level; a recorder exclusion is resource-TYPE level, so
+    a service can be partially recorded. Telling an operator that
+    `AWS::EC2::Instance` is excluded is true and not actionable; telling them
+    which rules go inert is.
+    """
+    out: dict[str, list[str]] = {}
+    for f in sorted((ROOT / "rules").glob("*.yaml")):
+        doc = yaml.safe_load(f.read_text())
+        for name, rule in doc["rules"].items():
+            for rt in (rule.get("resource_types") or []):
+                if rt in types:
+                    out.setdefault(rt, []).append(f"{doc['domain']}/{name}")
+    return out
 
 
 def check_region(region: str, needed: set[str], profile: str | None,
@@ -89,8 +125,15 @@ def check_region(region: str, needed: set[str], profile: str | None,
     if strategy == "EXCLUSION_BY_RESOURCE_TYPES" or exclusions:
         missing = needed & exclusions
         if missing:
-            problems.append(f"{region}: the recorder EXCLUDES {sorted(missing)}, which "
-                            f"selected packs need. Those rules would never evaluate.")
+            using = rules_using(missing)
+            detail = "; ".join(
+                f"{rt} -> {', '.join(using.get(rt, ['(pack prerequisite only)'])[:4])}"
+                + (" ..." if len(using.get(rt, [])) > 4 else "")
+                for rt in sorted(missing))
+            problems.append(
+                f"{region}: the recorder EXCLUDES resource types the selected packs "
+                f"need, so these rules would never evaluate — they would report "
+                f"INSUFFICIENT_DATA, which reads as 'not failing':\n      {detail}")
     elif not all_supported:
         missing = needed - recorded
         if missing:
@@ -135,7 +178,25 @@ def main() -> int:
         packs = cfg.get("packs") or []
         regions = cfg.get("regions") or []
         global_region = cfg.get("global_resource_region") or ""
-        want = required_resource_types(packs)
+        bnd_services: set[str] | None = None
+        svc = None
+        try:
+            sys.path.insert(0, str(ROOT))
+            from tools import aws_services, boundary as boundary_mod
+            svc = aws_services.load()
+            b = boundary_mod.resolve(cfg, set(svc.services), ROOT)
+            if b.declared:
+                bnd_services = set(b.services)
+        except Exception as exc:                          # noqa: BLE001
+            # A boundary that cannot be resolved must not silently widen the
+            # preflight back to everything; that would be the stricter, refusing
+            # behaviour arriving by accident.
+            raise PreflightError(f"boundary could not be resolved: {exc}") from exc
+
+        want = required_resource_types(packs, bnd_services, svc)
+        if bnd_services:
+            print(f"boundary: {len(bnd_services)} service(s); asserting only what "
+                  f"the composed packs actually reference")
 
         print(f"packs   : {', '.join(packs)}")
         print(f"regions : {', '.join(regions)}")
