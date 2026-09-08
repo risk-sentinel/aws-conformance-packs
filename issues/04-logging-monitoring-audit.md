@@ -6,7 +6,7 @@ labels: pack, domain:log
 ## Scope
 
 **800-53r5 families:** AU (2, 3, 4, 6, 9, 11, 12), SI-4, CA-7
-**20x KSIs:** KSI-MLA-01, -02, -06; KSI-CMT-01
+**20x KSIs:** KSI-CMT-LMC, KSI-MLA-EVC, KSI-MLA-LET, KSI-MLA-OSM, KSI-MLA-RVL, KSI-SVC-EIS
 **AWS services:** CloudTrail, CloudWatch Logs, Config, GuardDuty, Security Hub, VPC flow logs, S3 access logging
 **Resource types:** `AWS::CloudTrail::Trail`, `AWS::Logs::LogGroup`, `AWS::S3::Bucket`, `AWS::Config::ConfigurationRecorder`
 
@@ -55,10 +55,10 @@ pack-composition time with its reason recorded (see #20). Assignment rationale i
 - **This is the expensive pack.** Config charges per rule evaluation and per
   configuration item; log groups and buckets churn. Model cost on one account
   before org rollout.
-- **"Regularly review and audit logs" (KSI-MLA-02) is not the same as retaining
+- **"Regularly review and audit logs" (KSI-MLA-RVL) is not the same as retaining
   them.** Retention rules evidence storage, not review. The review activity is a
   process artifact belonging to the GOV pack. Mapping retention rules to
-  KSI-MLA-02 alone is the weakest link in the 20x crosswalk.
+  KSI-MLA-RVL alone is the weakest link in the 20x crosswalk.
 - **`securityhub-enabled` / `guardduty-enabled-centralized` check enablement, not
   that anything acts on findings.** SI-4 coverage stays `partial`.
 - **Recorder self-reference.** A rule about the Config recorder evaluated by
@@ -70,5 +70,5 @@ pack-composition time with its reason recorded (see #20). Assignment rationale i
 
 - [ ] Log-group scoping decision documented (tag-scoped vs account-wide)
 - [ ] Cost estimate for one representative account attached to this issue
-- [ ] KSI-MLA-02 marked `partial` with the review-activity gap named
+- [ ] KSI-MLA-RVL marked `partial` with the review-activity gap named
 - [ ] Out-of-band recorder assertion in CI rather than as a pack rule

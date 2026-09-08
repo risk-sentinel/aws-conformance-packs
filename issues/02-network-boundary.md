@@ -6,7 +6,7 @@ labels: pack, domain:net
 ## Scope
 
 **800-53r5 families:** SC-7 (+enhancements), AC-4, AC-17, SC-5
-**20x KSIs:** KSI-CNA-01 … KSI-CNA-07
+**20x KSIs:** KSI-CNA-MAT, KSI-CNA-RNT, KSI-CNA-RVP, KSI-CNA-ULN, KSI-IAM-ELP
 **AWS services:** VPC, EC2 security groups, NACLs, ELBv2, API Gateway, CloudFront, WAF, Shield, Route 53
 **Resource types:** `AWS::EC2::SecurityGroup`, `::NetworkAcl`, `::Subnet`, `::VPC`, `::EIP`, `AWS::ElasticLoadBalancingV2::LoadBalancer`, `AWS::ApiGateway::Stage`, `AWS::CloudFront::Distribution`
 
@@ -55,10 +55,10 @@ pack-composition time with its reason recorded (see #20). Assignment rationale i
 - **`vpc-flow-logs-enabled` checks that flow logs exist, not their destination,
   retention, or completeness.** Pair with the LOG pack's retention ODP or the
   evidence overstates AU coverage.
-- **KSI-CNA-05 (denial of service protection) has no clean managed rule.** Shield
+- **KSI-CNA-RVP (denial of service protection) has no clean managed rule.** Shield
   Advanced subscription state isn't a Config resource. WAF association rules are
   the closest proxy and only cover ALB/API GW/CloudFront. Model as hybrid.
-- **KSI-CNA-04 (immutable infrastructure) is an architecture property**, not a
+- **KSI-CNA-EIS (immutable infrastructure) is an architecture property**, not a
   resource attribute. Do not force a rule onto it; route to the VCM pack's
   change-management evidence or to attestation.
 
@@ -66,5 +66,5 @@ pack-composition time with its reason recorded (see #20). Assignment rationale i
 
 - [ ] Port-list ODP validated against the 5-item cap at generation time
 - [ ] IPv6 coverage confirmed per rule and recorded in the catalog
-- [ ] KSI-CNA-04 / -05 explicitly modeled as hybrid or documented, not faked
+- [ ] KSI-CNA-EIS and KSI-CNA-RVP explicitly modeled as hybrid or documented, not faked
 - [ ] Reachability caveat in the pack coverage report
