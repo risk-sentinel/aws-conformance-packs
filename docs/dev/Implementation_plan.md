@@ -142,7 +142,7 @@ checklist.
 
 ## Status snapshot
 
-> **Updated 2026-09-07.** Every row is verified against the repo and the GitHub
+> **Updated 2026-09-19.** Every row is verified against the repo and the GitHub
 > API as of that date, not projected.
 
 | Bucket | Current state |
@@ -153,13 +153,13 @@ checklist.
 | Rule catalogs (`rules/<domain>.yaml`) | **2 / 6** — `iam.yaml` (7 rules, partial; #2 open) and `net.yaml` (18 rules, #3). 25 rules total |
 | Guard policies (`guard/`) | **2** — KMS rotation period and the ELB TLS floor. Values bake at generation time |
 | Overlays (`overlays/`) | **3** — `vanilla.yaml` (moderate), `vanilla-low.yaml`, `vanilla-high.yaml`. All three generate; Low records 2 exclusions |
-| Repo CI | **5 workflows.** secret-scan (+ fixture canary), pack-lint, CodeQL (python), 2 HDF emitters |
+| Repo CI | **5 workflows.** secret-scan (+ fixture canary), pack-lint, CodeQL (python), 2 HDF emitters. Both emit legs send SSE-KMS as of #46 — the secret-scan caller was pinned six releases behind the fix, and the SonarQube upload is inline here so no pin reached it |
 | Branch protection | **Active ruleset** (id 22464078) — 4 required contexts, strict policy, PR + CODEOWNERS review, no deletion, no force-push. Admin bypass retained for the solo-owner case |
 | Secret-scan fixture canary | **Green** — proves the scanner still fires |
 | GitLab pipeline | **Absent** |
 | Deployment `inputs.yml` contract | **Shipped** — `inputs.template.yml` + validator + preflight + both forges |
 | Reference pack available to mine | `sparc-iac` `AWS/ECS/modules/aws_config/` — 107 rules, awslabs NIST r5 pack trimmed for a Fargate boundary |
-| Evidence path | `risk-sentinel/aws-config` reusable workflow already fetches Config evaluations → HDF. Emit grant filed as **sparc-iac#701**; workflows degrade to build artifacts until it lands |
+| Evidence path | `risk-sentinel/aws-config` reusable workflow already fetches Config evaluations → HDF. Emit grant filed as **sparc-iac#701**, now tracked on **sparc-iac#723**; workflows degrade to build artifacts until it lands. Emit requests carry `x-amz-server-side-encryption: aws:kms` ahead of the bucket deny being re-extended (sparc-iac#721), so nothing has to be revisited when the role arrives |
 | SonarCloud | **Onboarded.** 18 vulnerabilities found and fixed; `SonarCloud Code Analysis` can now become the 5th required context |
 | Live verification | **Preflight verified against a real recorder; it refuses, correctly.** Nothing deployed — no `put-conformance-pack` call has been made |
 | Highest-priority next work | **Phase 4 deployment portability** (`inputs.yml`, two-forge pipeline, the OUT-OF-BAND recorder check) and **live verification** — nothing has evaluated a real resource. Then **#8 GOV**, which needs owner decisions. Open: SonarCloud onboarding for the 5th required context |
