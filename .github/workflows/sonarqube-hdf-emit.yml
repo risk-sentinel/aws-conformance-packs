@@ -245,7 +245,7 @@ jobs:
           for slot in "${DATE}" latest; do
             aws s3 cp "$HDF_FILE" \
               "s3://${BUCKET}/${BOUNDARY}/${slot}/${REPO_SLUG}/sonarqube/sonarqube-hdf.json" \
-              --no-progress
+              --no-progress --sse aws:kms
           done
           echo "Emitted to s3://${BUCKET}/${BOUNDARY}/{${DATE},latest}/${REPO_SLUG}/sonarqube/sonarqube-hdf.json"
 
