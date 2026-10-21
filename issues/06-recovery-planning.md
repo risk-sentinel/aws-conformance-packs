@@ -1,5 +1,5 @@
 ---
-title: "Pack: Resilience & Recovery (RPL)"
+title: "Pack: Recovery Planning (RPL)"
 labels: pack, domain:rpl
 ---
 
