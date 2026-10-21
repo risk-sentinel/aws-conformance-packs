@@ -83,7 +83,7 @@ label_meta() {
     domain:crypto)  echo "c5def5|Cryptography and data protection" ;;
     domain:log)     echo "c5def5|Logging, monitoring, audit" ;;
     domain:vcm)     echo "c5def5|Vulnerability and configuration management" ;;
-    domain:rpl)     echo "c5def5|Resilience and recovery" ;;
+    domain:rpl)     echo "c5def5|Recovery planning" ;;
     domain:gov)     echo "c5def5|Governance and policy evidence" ;;
     *)              echo "ededed|" ;;
   esac

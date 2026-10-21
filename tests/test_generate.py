@@ -419,7 +419,7 @@ def test_every_candidate_rule_named_in_the_issue_is_built():
     domains = {
         "iam": "01-identity-access", "net": "02-network-boundary",
         "crypto": "03-crypto-data-protection", "log": "04-logging-monitoring-audit",
-        "vcm": "05-vuln-config-management", "rpl": "06-resilience-recovery",
+        "vcm": "05-vuln-config-management", "rpl": "06-recovery-planning",
     }
     started, shortfalls = [], {}
     for dom, issue in domains.items():
